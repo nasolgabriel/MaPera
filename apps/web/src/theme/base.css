@@ -1,0 +1,46 @@
+/* Base styles — README §5. Tokens are set by applyTheme() in theme/tokens.ts. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Libre Franklin', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers, labels, meta text (§5 typography) */
+.mono {
+  font-family: 'Spline Sans Mono', monospace;
+}
+
+/* Amounts are bold (700–800) */
+.amount {
+  font-family: 'Spline Sans Mono', monospace;
+  font-weight: 700;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  /* Hit targets ≥ 44px (§5) */
+  min-height: 44px;
+  min-width: 44px;
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MaPera</string>
+    <string name="title_activity_main">MaPera</string>
+    <string name="package_name">com.mapera.app</string>
+    <string name="custom_url_scheme">com.mapera.app</string>
+</resources>
