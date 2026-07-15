@@ -1,5 +1,8 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { Capacitor } from '@capacitor/core'
+import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
+import 'jeep-sqlite'
 
 // §5 typography: Libre Franklin (UI) 400–800, Spline Sans Mono (numbers) 400/500.
 // Bundled locally (offline-first, §3) — never loaded from a CDN.
@@ -19,4 +22,16 @@ import App from './App.vue'
 // Theme setting (light/dark/system toggle) lands in C2; light is the default until then.
 applyTheme('light')
 
-createApp(App).use(createPinia()).use(router).mount('#app')
+// Web platform has no native SQLite — jeep-sqlite backs it with IndexedDB via a
+// <jeep-sqlite> element + initWebStore(). Native (Android) skips this entirely.
+async function initSqliteWebStore(): Promise<void> {
+  if (Capacitor.getPlatform() !== 'web') return
+  const jeepSqliteEl = document.createElement('jeep-sqlite')
+  document.body.appendChild(jeepSqliteEl)
+  await customElements.whenDefined('jeep-sqlite')
+  await new SQLiteConnection(CapacitorSQLite).initWebStore()
+}
+
+initSqliteWebStore().then(() => {
+  createApp(App).use(createPinia()).use(router).mount('#app')
+})
