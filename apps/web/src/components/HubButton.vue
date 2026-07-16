@@ -154,7 +154,7 @@ onBeforeUnmount(() => {
 }
 .arc {
   position: fixed;
-  bottom: 110px;
+  bottom: calc(120px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 45;
@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
 }
 .hub-wrap {
   position: fixed;
-  bottom: 14px;
+  bottom: calc(24px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;

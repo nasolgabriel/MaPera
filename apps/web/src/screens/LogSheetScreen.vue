@@ -170,7 +170,7 @@ onMounted(async () => {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
   max-width: 480px;
   margin: 0 auto;
   padding: 14px 16px 16px;

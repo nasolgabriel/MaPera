@@ -6,12 +6,23 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* Device safe areas: status bar / camera cutout on top, gesture bar below. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 html,
 body,
 #app {
   margin: 0;
   padding: 0;
   min-height: 100%;
+}
+
+#app {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
 }
 
 body {
