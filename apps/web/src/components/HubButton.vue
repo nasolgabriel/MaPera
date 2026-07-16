@@ -8,10 +8,10 @@ const HOLD_MS = 350;
 
 // Arc order + shape are DECIDED (wireframe A2): outer two sit 26px lower.
 const DESTINATIONS = [
-  { name: 'budget', short: 'Bud', label: 'Budget', offset: true },
-  { name: 'savings', short: 'Sav', label: 'Savings', offset: false },
-  { name: 'stats', short: 'Sta', label: 'Stats', offset: false },
-  { name: 'more', short: 'More', label: 'More', offset: true },
+  { name: 'budget', label: 'Budget', offset: true },
+  { name: 'savings', label: 'Savings', offset: false },
+  { name: 'stats', label: 'Stats', offset: false },
+  { name: 'more', label: 'More', offset: true },
 ] as const;
 
 const router = useRouter();
@@ -113,24 +113,29 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="visible">
-    <div v-if="open" class="backdrop" @click="close" />
-    <div v-if="open" class="arc">
-      <button
-        v-for="d in DESTINATIONS"
-        :key="d.name"
-        class="arc-btn"
-        :class="{ offset: d.offset }"
-        :data-route="d.name"
-        @click="go(d.name)"
-      >
-        <span class="arc-circle" :class="{ hot: highlighted === d.name }">{{ d.short }}</span>
-        <span class="arc-label">{{ d.label }}</span>
-      </button>
-    </div>
+    <Transition name="fade">
+      <div v-if="open" class="backdrop" @click="close" />
+    </Transition>
+    <Transition name="arc">
+      <div v-if="open" class="arc">
+        <button
+          v-for="(d, i) in DESTINATIONS"
+          :key="d.name"
+          class="arc-btn"
+          :class="{ offset: d.offset }"
+          :style="{ '--i': i }"
+          :data-route="d.name"
+          @click="go(d.name)"
+        >
+          <span class="arc-circle" :class="{ hot: highlighted === d.name }">{{ d.label }}</span>
+        </button>
+      </div>
+    </Transition>
     <div class="hub-wrap">
       <div class="gauge" :style="gaugeStyle" aria-hidden="true"></div>
       <button
         class="hub"
+        :class="{ open }"
         aria-label="Log a transaction. Hold for module navigation."
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
@@ -139,7 +144,7 @@ onBeforeUnmount(() => {
         @click="onClick"
         @contextmenu.prevent
       >
-        {{ open ? '✕' : '+' }}
+        <span class="hub-icon">+</span>
       </button>
     </div>
   </div>
@@ -173,28 +178,73 @@ onBeforeUnmount(() => {
 .arc-btn.offset {
   transform: translateY(26px);
 }
+/* Bloom: each button springs up with a small stagger (--i set inline). */
+.arc-btn > * {
+  /* backwards (not both): once done, the keyframe must release `transform`
+     so the .hot / hover scale transitions can take over. */
+  animation: bloom-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: calc(var(--i) * 45ms);
+}
+@keyframes bloom-in {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 .arc-circle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
+  width: 58px;
+  height: 58px;
   border-radius: 50%;
   background: var(--color-surface);
   border: 2px solid var(--color-primary);
   color: var(--color-primary);
+  font-family: 'Libre Franklin', sans-serif;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 8px rgba(22, 33, 58, 0.18);
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.arc-btn:hover .arc-circle {
+  transform: scale(1.08);
 }
 .arc-circle.hot {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: var(--color-text);
+  font-weight: 700;
+  transform: scale(1.18);
+  box-shadow: 0 6px 16px rgba(22, 33, 58, 0.35);
 }
-.arc-label {
-  font-family: 'Spline Sans Mono', monospace;
-  font-size: 9px;
-  color: #fff;
+/* Backdrop fade + arc dismiss */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+.arc-leave-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+  transform-origin: bottom center;
+}
+.arc-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px) scale(0.9);
 }
 .hub-wrap {
   position: fixed;
@@ -228,5 +278,32 @@ onBeforeUnmount(() => {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.hub:active {
+  transform: scale(0.92); /* press feedback while the hold timer runs */
+}
+.hub.open {
+  transform: scale(1.06);
+}
+.hub-icon {
+  display: block;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hub.open .hub-icon {
+  transform: rotate(135deg); /* + spins into ✕ */
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub,
+  .hub-icon,
+  .arc-circle,
+  .fade-enter-active,
+  .fade-leave-active,
+  .arc-leave-active {
+    transition: none;
+  }
+  .arc-btn > * {
+    animation: none;
+  }
 }
 </style>
