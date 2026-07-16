@@ -6,7 +6,8 @@ import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { createCapacitorDriver } from './drivers/capacitorDriver';
 import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
-import { seed } from './seed';
+import { createBudgetsRepo } from './repositories/budgetsRepo';
+import { seed, seedBudgets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -22,7 +23,12 @@ async function init(): Promise<SqlDriver> {
   // First launch: seed the §8.1 worked example so screens have data to show.
   // Real fresh-install empty-state handling is C4.
   const accounts = await createAccountsRepo(db).list();
-  if (accounts.length === 0) await seed(db);
+  if (accounts.length === 0) {
+    await seed(db);
+  } else if ((await createBudgetsRepo(db).list()).length === 0) {
+    // Dev DBs created before B2 have no budgets — top up so the hub gauge has data.
+    await seedBudgets(db);
+  }
   return db;
 }
 
@@ -32,7 +38,10 @@ async function init(): Promise<SqlDriver> {
 // gracefully to "no data" instead of a blank screen.
 async function initWebStoreIfNeeded(): Promise<void> {
   if (Capacitor.getPlatform() !== 'web') return;
-  await import('jeep-sqlite');
+  // jeep-sqlite is a Stencil component: importing the package does NOT register the
+  // custom element — its lazy loader must be invoked, or whenDefined() waits forever.
+  const { defineCustomElements } = await import('jeep-sqlite/loader');
+  defineCustomElements(window);
   if (!document.querySelector('jeep-sqlite')) {
     document.body.appendChild(document.createElement('jeep-sqlite'));
   }

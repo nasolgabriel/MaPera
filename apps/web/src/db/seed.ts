@@ -1,5 +1,6 @@
 import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
+import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createCategoriesRepo } from './repositories/categoriesRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
 
@@ -37,4 +38,14 @@ export async function seed(db: SqlDriver): Promise<void> {
     discount_rule_id: null, recurring_id: null, saved_item_id: null,
   });
   // I=20,000.00, E=13,500.00 → cash_flow = +6,500.00 (650000 centavos)
+
+  await seedBudgets(db);
+}
+
+// Σ cap = ₱15,000 vs seed spend ₱13,500 → hub gauge 90%. Exported separately so
+// db/index.ts can top up databases seeded before budgets existed.
+export async function seedBudgets(db: SqlDriver): Promise<void> {
+  const budgets = createBudgetsRepo(db);
+  await budgets.create({ id: 'bud-food', category_id: 'cat-food', month: '2026-07', cap_amount: 1000000 });
+  await budgets.create({ id: 'bud-transport', category_id: 'cat-transport', month: '2026-07', cap_amount: 500000 });
 }

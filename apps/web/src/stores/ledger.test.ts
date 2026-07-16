@@ -61,6 +61,25 @@ describe('ledger store (B1)', () => {
     expect(cashFlow(accounts, txns, MONTH)).toBe(totalBalance(accounts, txns));
   });
 
+  it('hub gauge reflects seed budgets: ₱13,500 spent of ₱15,000 caps = 0.9 (B2 accept)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH; // pin — seed budgets live in 2026-07
+    await store.load();
+    expect(store.budgets).toHaveLength(2);
+    expect(store.hubGauge).toBe(0.9);
+  });
+
+  it('hub gauge clamps at 1 when spend exceeds caps', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    await store.addTransaction({
+      amount: 300000, kind: 'expense', account_id: 'acc-bank',
+      to_account_id: null, category_id: 'cat-food', date: '2026-07-13', note: null,
+    }); // food spend ₱12,000 > ₱10,000 cap → total 16,500/15,000
+    expect(store.hubGauge).toBe(1);
+  });
+
   it('a "Saving" transfer counts in S_net, not in cash_flow', async () => {
     const store = useLedgerStore();
     await store.load();

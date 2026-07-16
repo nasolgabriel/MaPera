@@ -1,13 +1,15 @@
-// Ledger store — wires the transaction/account/category repos to reactive state.
-// No money math here (that's domain/); this only reads/writes rows and holds them.
+// Ledger store — wires the transaction/account/category/budget repos to reactive state.
+// No money math here (that's domain/).
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { getDb } from '../db';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
+import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
 import { createCategoriesRepo } from '../db/repositories/categoriesRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
+import { budgetConsumed } from '../domain/budgets';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Category, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, Transaction } from '../db/repositories/types';
 
 /** Fields the log sheet supplies; the store fills id + the B10/B6/B11 link columns. */
 export interface NewTransaction {
@@ -22,23 +24,37 @@ export interface NewTransaction {
 
 const RECENTS_LIMIT = 5; // §6.1 recents = last 5 transactions
 
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
 export const useLedgerStore = defineStore('ledger', () => {
   const accounts = ref<Account[]>([]);
   const categories = ref<Category[]>([]);
-  const recent = ref<Transaction[]>([]);
+  const transactions = ref<Transaction[]>([]);
+  const budgets = ref<Budget[]>([]);
+  const month = ref(currentMonth()); // §6.1 month switcher moves this
   const loaded = ref(false);
+
+  const recent = computed(() => transactions.value.slice(0, RECENTS_LIMIT));
+
+  /** §6 hub ring: budget consumed, clamped to [0,1]; null = no caps set. */
+  const hubGauge = computed(() => {
+    const fraction = budgetConsumed(accounts.value, transactions.value, budgets.value, month.value);
+    return fraction === null ? null : Math.min(fraction, 1);
+  });
 
   async function load(): Promise<void> {
     const db = await getDb();
     accounts.value = await createAccountsRepo(db).list();
     categories.value = await createCategoriesRepo(db).list();
-    await refreshRecent(db);
+    budgets.value = await createBudgetsRepo(db).listByMonth(month.value);
+    await refreshTransactions(db);
     loaded.value = true;
   }
 
-  async function refreshRecent(db: SqlDriver): Promise<void> {
-    const all = await createTransactionsRepo(db).list();
-    recent.value = all.slice(0, RECENTS_LIMIT);
+  async function refreshTransactions(db: SqlDriver): Promise<void> {
+    transactions.value = await createTransactionsRepo(db).list();
   }
 
   async function addTransaction(input: NewTransaction): Promise<void> {
@@ -50,8 +66,8 @@ export const useLedgerStore = defineStore('ledger', () => {
       saved_item_id: null,
       ...input,
     });
-    await refreshRecent(db);
+    await refreshTransactions(db);
   }
 
-  return { accounts, categories, recent, loaded, load, addTransaction };
+  return { accounts, categories, transactions, budgets, month, recent, hubGauge, loaded, load, addTransaction };
 });

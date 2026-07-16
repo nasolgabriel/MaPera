@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Hub button (B2) will mount here, above the router view, on every screen.
+import HubButton from './components/HubButton.vue';
 </script>
 
 <template>
   <RouterView />
+  <HubButton />
 </template>

@@ -13,6 +13,9 @@ export function createBudgetsRepo(db: SqlDriver) {
       const rows = await db.query<Budget>('SELECT * FROM budgets WHERE id = ?', [id]);
       return rows[0] ?? null;
     },
+    async list(): Promise<Budget[]> {
+      return db.query<Budget>('SELECT * FROM budgets', []);
+    },
     async listByMonth(month: string): Promise<Budget[]> {
       return db.query<Budget>('SELECT * FROM budgets WHERE month = ?', [month]);
     },
