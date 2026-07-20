@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { budgetConsumed, categorySpent } from './budgets';
+import {
+  budgetConsumed,
+  budgetRemaining,
+  budgetUsed,
+  categorySpent,
+  dailySafeSpend,
+  spentByCategory,
+  totalCap,
+  vsBudget,
+} from './budgets';
+import { expenses } from './stats';
 import type { Account, Budget, Transaction } from '../db/repositories/types';
 
 const MONTH = '2026-07';
@@ -80,5 +90,98 @@ describe('budgetConsumed — hub ring gauge (§6 / §8.4)', () => {
 
   it('Σ cap = 0 → null, never NaN/Infinity (§8.7 guard)', () => {
     expect(budgetConsumed(accounts, [], [], MONTH)).toBeNull();
+  });
+});
+
+// Seed-shaped fixture: caps ₱15,000, budgeted spend ₱13,500.
+const seedTxns = [
+  expense('t1', 900000, 'cat-food', '2026-07-05'),
+  expense('t2', 450000, 'cat-transport', '2026-07-06'),
+];
+const seedBudgets = [budget('b1', 'cat-food', 1000000), budget('b2', 'cat-transport', 500000)];
+
+describe('totalCap — Σ cap (§8.4)', () => {
+  it('sums caps of the month only', () => {
+    const budgets = [...seedBudgets, budget('b3', 'cat-food', 999999, '2026-06')];
+    expect(totalCap(budgets, MONTH)).toBe(1500000);
+  });
+});
+
+describe('budgetUsed — budget_used(c,t) §8.4', () => {
+  it('spent / cap × 100 (seed food = 90%)', () => {
+    expect(budgetUsed(accounts, seedTxns, seedBudgets, 'cat-food', MONTH)).toBe(90);
+  });
+
+  it('no cap for the category → null, never NaN (§8.7 guard)', () => {
+    expect(budgetUsed(accounts, seedTxns, seedBudgets, 'cat-fun', MONTH)).toBeNull();
+  });
+});
+
+describe('budgetRemaining — donut center (§8.4)', () => {
+  it('Σ cap − Σ spent (seed = ₱1,500 left)', () => {
+    expect(budgetRemaining(accounts, seedTxns, seedBudgets, MONTH)).toBe(150000);
+  });
+
+  it('goes negative when over cap', () => {
+    const txns = [expense('t1', 1700000, 'cat-food', '2026-07-05')];
+    const budgets = [budget('b1', 'cat-food', 1000000)];
+    expect(budgetRemaining(accounts, txns, budgets, MONTH)).toBe(-700000);
+  });
+
+  it('uncapped-category spend does not reduce remaining (matches budgetConsumed scope)', () => {
+    const txns = [...seedTxns, expense('t9', 999999, 'cat-fun', '2026-07-07')];
+    expect(budgetRemaining(accounts, txns, seedBudgets, MONTH)).toBe(150000);
+  });
+});
+
+describe('dailySafeSpend — daily_safe_spend(t) §8.4', () => {
+  it('budget_remaining / days_left (seed, 15 days left = ₱100/day)', () => {
+    expect(dailySafeSpend(accounts, seedTxns, seedBudgets, MONTH, 15)).toBe(10000);
+  });
+
+  it('days_left ≤ 0 → null (§8.7 guard)', () => {
+    expect(dailySafeSpend(accounts, seedTxns, seedBudgets, MONTH, 0)).toBeNull();
+  });
+});
+
+describe('vsBudget — vs_budget(t) §8.4', () => {
+  it('(Σ spent − Σ cap) / Σ cap × 100 (seed = −10%)', () => {
+    expect(vsBudget(accounts, seedTxns, seedBudgets, MONTH)).toBe(-10);
+  });
+
+  it('Σ cap = 0 → null (§8.7 guard)', () => {
+    expect(vsBudget(accounts, seedTxns, [], MONTH)).toBeNull();
+  });
+});
+
+describe('spentByCategory — donut slices + invariant 3', () => {
+  const accs = [account('a1'), account('a2', { archived: true })];
+  const txns = [
+    expense('t1', 900000, 'cat-food', '2026-07-05'),
+    expense('t2', 450000, 'cat-transport', '2026-07-06'),
+    expense('t3', 18000, null, '2026-07-08'), // uncategorized
+    expense('t4', 50000, 'cat-food', '2026-06-30'), // other month
+    expense('t5', 77777, 'cat-food', '2026-07-09', 'a2'), // archived account
+    { ...expense('t6', 500000, 'cat-salary', '2026-07-01'), kind: 'income' as const },
+    { ...expense('t7', 200000, null, '2026-07-02'), kind: 'transfer' as const, to_account_id: 'a2' },
+  ];
+
+  it('invariant 3: Σ category spends + uncategorized ≡ E(t)', () => {
+    const slices = spentByCategory(accs, txns, MONTH);
+    const total = slices.reduce((sum, s) => sum + s.amount, 0);
+    expect(total).toBe(expenses(accs, txns, MONTH));
+    expect(total).toBe(1368000);
+  });
+
+  it('groups by category with a null bucket for uncategorized, sorted desc', () => {
+    expect(spentByCategory(accs, txns, MONTH)).toEqual([
+      { category_id: 'cat-food', amount: 900000 },
+      { category_id: 'cat-transport', amount: 450000 },
+      { category_id: null, amount: 18000 },
+    ]);
+  });
+
+  it('empty month → empty slice list (fresh-install zero state)', () => {
+    expect(spentByCategory(accs, txns, '2026-01')).toEqual([]);
   });
 });

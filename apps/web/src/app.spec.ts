@@ -12,7 +12,9 @@ describe('app shell', () => {
     const wrapper = mount(App, {
       global: { plugins: [createPinia(), router] },
     })
-    expect(wrapper.text()).toContain('Budget')
+    // B3 Budget home: month switcher header + recents label are always rendered.
+    expect(wrapper.text()).toContain('recent')
+    expect(wrapper.find('.month-label').exists()).toBe(true)
   })
 
   it('has routes for all six screens', () => {

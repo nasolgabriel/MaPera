@@ -80,6 +80,41 @@ describe('ledger store (B1)', () => {
     expect(store.hubGauge).toBe(1);
   });
 
+  it('deleteTransaction removes the row and derived state refreshes (invariant 4)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.hubGauge).toBe(0.9);
+    await store.deleteTransaction('txn-expense-2'); // −₱4,500 transport spend
+    const all = await createTransactionsRepo(dbRef.current!).list();
+    expect(all).toHaveLength(2);
+    expect(store.recent.find((t) => t.id === 'txn-expense-2')).toBeUndefined();
+    expect(store.hubGauge).toBe(0.6); // 9,000 / 15,000 — gauge recomputed, no stale cache
+  });
+
+  it('updateTransaction persists edits and re-buckets a backdated month (invariant 6)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    const txn = store.transactions.find((t) => t.id === 'txn-expense-1')!;
+    await store.updateTransaction({ ...txn, amount: 500000, date: '2026-06-15' });
+    const saved = await createTransactionsRepo(dbRef.current!).getById('txn-expense-1');
+    expect(saved).toMatchObject({ amount: 500000, date: '2026-06-15' });
+    // Food spend left July entirely → July gauge is transport only: 4,500 / 15,000.
+    expect(store.hubGauge).toBe(0.3);
+  });
+
+  it('setMonth moves the visible month and reloads its caps', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.budgets).toHaveLength(2);
+    await store.setMonth('2026-08');
+    expect(store.month).toBe('2026-08');
+    expect(store.budgets).toHaveLength(0); // seed caps live in 2026-07 only
+    expect(store.hubGauge).toBeNull();
+  });
+
   it('a "Saving" transfer counts in S_net, not in cash_flow', async () => {
     const store = useLedgerStore();
     await store.load();

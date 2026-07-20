@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
 import { isSavingsAccount } from '../domain/stats';
+import type { Transaction } from '../db/repositories/types';
 
 type Kind = 'expense' | 'income' | 'saving';
 
 const router = useRouter();
+const route = useRoute();
 const store = useLedgerStore();
+
+const editing = ref<Transaction | null>(null);
 
 const kind = ref<Kind>('expense');
 const amountDigits = ref(''); // digits typed = centavos (12050 → ₱120.50)
@@ -69,16 +73,20 @@ async function save(): Promise<void> {
   saving.value = true;
   try {
     const isSaving = kind.value === 'saving';
-    const txnKind: 'expense' | 'income' | 'transfer' = kind.value === 'saving' ? 'transfer' : kind.value;
-    await store.addTransaction({
+    const fields = {
       amount: centavos.value,
-      kind: txnKind,
+      kind: (isSaving ? 'transfer' : kind.value) as 'expense' | 'income' | 'transfer',
       account_id: accountId.value,
       to_account_id: isSaving ? toAccountId.value : null,
       category_id: isSaving ? null : categoryId.value,
       date: date.value,
       note: note.value.trim() || null,
-    });
+    };
+    if (editing.value) {
+      await store.updateTransaction({ ...editing.value, ...fields });
+    } else {
+      await store.addTransaction(fields);
+    }
     router.push('/');
   } finally {
     saving.value = false;
@@ -88,6 +96,17 @@ async function save(): Promise<void> {
 onMounted(async () => {
   if (!store.loaded) await store.load();
   applyDefaults();
+  const editId = typeof route.query.txn === 'string' ? route.query.txn : null;
+  const txn = editId ? store.transactions.find((t) => t.id === editId) : undefined;
+  if (!txn) return;
+  editing.value = txn;
+  kind.value = txn.kind === 'transfer' ? 'saving' : txn.kind;
+  amountDigits.value = String(txn.amount);
+  categoryId.value = txn.category_id;
+  accountId.value = txn.account_id;
+  toAccountId.value = txn.to_account_id;
+  date.value = txn.date;
+  note.value = txn.note ?? '';
 });
 </script>
 
