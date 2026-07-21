@@ -236,28 +236,29 @@ onBeforeUnmount(() => {
     box-shadow 0.18s ease;
 }
 .arc.open .arc-btn {
-  width: 58px;
-  height: 58px;
-  margin: -29px 0 0 -29px;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
   background: var(--color-surface);
 }
-/* Arc endpoints. Outer two sit 26px lower (DECIDED shape); the whole arc is
-   lifted enough that the lowest label still clears the hub's top edge. */
+/* Arc endpoints match the original navigation-model cluster: 44px circles,
+   8px gaps (centers at ±26 / ±78), outer two sitting 12px lower. Tight, not
+   spread — see the "navigation model" card in the wireframes. */
 .arc.open .at-budget {
-  transform: translate(-84px, -84px);
+  transform: translate(-78px, -76px);
 }
 .arc.open .at-savings {
-  transform: translate(-28px, -110px);
+  transform: translate(-26px, -88px);
 }
 .arc.open .at-stats {
-  transform: translate(28px, -110px);
+  transform: translate(26px, -88px);
 }
 .arc.open .at-more {
-  transform: translate(84px, -84px);
+  transform: translate(78px, -76px);
 }
 .arc-icon {
-  width: 22px;
-  height: 22px;
+  width: 19px;
+  height: 19px;
   flex: none;
   transform: scale(0);
   /* Late overshoot: icon pops after its circle has arrived. */
@@ -298,16 +299,16 @@ onBeforeUnmount(() => {
   box-shadow: 0 6px 16px rgba(22, 33, 58, 0.35);
 }
 .arc.open .at-budget.hot {
-  transform: translate(-84px, -84px) scale(1.14);
+  transform: translate(-78px, -76px) scale(1.14);
 }
 .arc.open .at-savings.hot {
-  transform: translate(-28px, -110px) scale(1.14);
+  transform: translate(-26px, -88px) scale(1.14);
 }
 .arc.open .at-stats.hot {
-  transform: translate(28px, -110px) scale(1.14);
+  transform: translate(26px, -88px) scale(1.14);
 }
 .arc.open .at-more.hot {
-  transform: translate(84px, -84px) scale(1.14);
+  transform: translate(78px, -76px) scale(1.14);
 }
 /* Backdrop fade */
 .fade-enter-active,
