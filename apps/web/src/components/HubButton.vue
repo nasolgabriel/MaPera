@@ -7,18 +7,39 @@ import { useLedgerStore } from '../stores/ledger';
 const HOLD_MS = 350;
 
 // Arc order + shape are DECIDED (wireframe A2): outer two sit 26px lower.
+// `icon` holds Lucide path geometry inlined at 24x24 — no icon package in this app.
 const DESTINATIONS = [
-  { name: 'budget', label: 'Budget', offset: true },
-  { name: 'savings', label: 'Savings', offset: false },
-  { name: 'stats', label: 'Stats', offset: false },
-  { name: 'more', label: 'More', offset: true },
+  {
+    name: 'budget',
+    label: 'Budget',
+    offset: true,
+    icon: '<path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 12V3a9 9 0 0 1 9 9z"/>',
+  },
+  {
+    name: 'savings',
+    label: 'Savings',
+    offset: false,
+    icon: '<path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5z"/><path d="M2 9v1c0 1.1.9 2 2 2h1"/><path d="M16 11h.01"/>',
+  },
+  {
+    name: 'stats',
+    label: 'Stats',
+    offset: false,
+    icon: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  },
+  {
+    name: 'more',
+    label: 'More',
+    offset: true,
+    icon: '<circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/><circle cx="5" cy="12" r="1.4"/>',
+  },
 ] as const;
 
 const router = useRouter();
 const route = useRoute();
 const store = useLedgerStore();
 
-const visible = computed(() => ['budget', 'savings', 'stats', 'more'].includes(String(route.name)));
+const visible = computed(() => ['budget', 'savings', 'stats', 'more', 'caps'].includes(String(route.name)));
 
 const open = ref(false);
 const highlighted = ref<string | null>(null);
@@ -116,21 +137,33 @@ onBeforeUnmount(() => {
     <Transition name="fade">
       <div v-if="open" class="backdrop" @click="close" />
     </Transition>
-    <Transition name="arc">
-      <div v-if="open" class="arc">
-        <button
-          v-for="(d, i) in DESTINATIONS"
-          :key="d.name"
-          class="arc-btn"
-          :class="{ offset: d.offset }"
-          :style="{ '--i': i }"
-          :data-route="d.name"
-          @click="go(d.name)"
-        >
-          <span class="arc-circle" :class="{ hot: highlighted === d.name }">{{ d.label }}</span>
-        </button>
-      </div>
-    </Transition>
+    <!-- The arc stays mounted so its buttons can sit collapsed ON the hub and
+         emerge from it; `open` drives the whole transition. `inert` keeps the
+         collapsed dots out of the tab order and off screen readers. -->
+    <div class="arc" :class="{ open }" :inert="!open">
+      <button
+        v-for="d in DESTINATIONS"
+        :key="d.name"
+        class="arc-btn"
+        :class="[`at-${d.name}`, { hot: highlighted === d.name }]"
+        :data-route="d.name"
+        :aria-label="d.label"
+        @click="go(d.name)"
+      >
+        <svg
+          class="arc-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          v-html="d.icon"
+        />
+        <span class="arc-label">{{ d.label }}</span>
+      </button>
+    </div>
     <div class="hub-wrap">
       <div class="gauge" :style="gaugeStyle" aria-hidden="true"></div>
       <button
@@ -157,94 +190,133 @@ onBeforeUnmount(() => {
   z-index: 40;
   background: rgba(22, 33, 58, 0.45); /* §6: dims 45% */
 }
+/* --- Arc: emerge-from-hub ------------------------------------------------
+   Zero-size origin pinned to the hub's exact center (hub is 64px tall at
+   bottom 24px + safe-bottom, so its center is 56px + safe-bottom). Buttons
+   are absolutely placed here, start as 8px dots, then travel out while
+   inflating. Keep this bottom value in sync with .hub-wrap. */
 .arc {
   position: fixed;
-  bottom: calc(120px + var(--safe-bottom));
+  bottom: calc(56px + var(--safe-bottom));
   left: 50%;
-  transform: translateX(-50%);
+  width: 0;
+  height: 0;
   z-index: 45;
-  display: flex;
-  gap: 14px;
 }
 .arc-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-}
-.arc-btn.offset {
-  transform: translateY(26px);
-}
-/* Bloom: each button springs up with a small stagger (--i set inline). */
-.arc-btn > * {
-  /* backwards (not both): once done, the keyframe must release `transform`
-     so the .hot / hover scale transitions can take over. */
-  animation: bloom-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
-  animation-delay: calc(var(--i) * 45ms);
-}
-@keyframes bloom-in {
-  from {
-    opacity: 0;
-    transform: translateY(22px) scale(0.4);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-.arc-circle {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 58px;
-  height: 58px;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
   border-radius: 50%;
-  background: var(--color-surface);
+  background: var(--color-primary);
   border: 2px solid var(--color-primary);
+  box-sizing: border-box;
   color: var(--color-primary);
-  font-family: 'Libre Franklin', sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  box-shadow: 0 2px 8px rgba(22, 33, 58, 0.18);
+  /* NOT overflow:hidden — the label is positioned outside the button box and
+     would be clipped. The icon is held at scale(0) while closed instead. */
+  box-shadow: 0 2px 8px rgba(22, 33, 58, 0.3);
+  /* Reference curve: the negative first control point dips back before
+     springing past the target, which is what sells the "pop out". */
   transition:
-    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-    background-color 0.18s ease,
-    border-color 0.18s ease,
+    transform 0.3s cubic-bezier(0.41, -0.86, 0.76, 1.89),
+    width 0.3s cubic-bezier(0.41, -0.86, 0.76, 1.89),
+    height 0.3s cubic-bezier(0.41, -0.86, 0.76, 1.89),
+    margin 0.3s cubic-bezier(0.41, -0.86, 0.76, 1.89),
+    background-color 0.3s ease,
+    border-color 0.3s ease,
     box-shadow 0.18s ease;
 }
-.arc-btn:hover .arc-circle {
-  transform: scale(1.08);
+.arc.open .arc-btn {
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
+  background: var(--color-surface);
 }
-.arc-circle.hot {
+/* Arc endpoints. Outer two sit 26px lower (DECIDED shape); the whole arc is
+   lifted enough that the lowest label still clears the hub's top edge. */
+.arc.open .at-budget {
+  transform: translate(-84px, -84px);
+}
+.arc.open .at-savings {
+  transform: translate(-28px, -110px);
+}
+.arc.open .at-stats {
+  transform: translate(28px, -110px);
+}
+.arc.open .at-more {
+  transform: translate(84px, -84px);
+}
+.arc-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  transform: scale(0);
+  /* Late overshoot: icon pops after its circle has arrived. */
+  transition:
+    transform 0.5s cubic-bezier(0.41, -2, 0.76, 2),
+    stroke-width 0.18s ease;
+}
+.arc.open .arc-icon {
+  transform: scale(1);
+}
+.arc-btn.hot .arc-icon {
+  stroke-width: 1.9;
+}
+.arc-label {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Spline Sans Mono', monospace;
+  font-size: 9px;
+  color: #fff;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  /* labels sit on the 45%-dim backdrop, not a solid surface */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.2s ease 0.12s;
+}
+.arc.open .arc-label {
+  opacity: 1;
+}
+/* .hot must repeat each endpoint: `transform` is one property, so a bare
+   scale() here would discard the translate and snap the circle to the hub. */
+.arc.open .arc-btn.hot {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: var(--color-text);
-  font-weight: 700;
-  transform: scale(1.18);
   box-shadow: 0 6px 16px rgba(22, 33, 58, 0.35);
 }
-/* Backdrop fade + arc dismiss */
+.arc.open .at-budget.hot {
+  transform: translate(-84px, -84px) scale(1.14);
+}
+.arc.open .at-savings.hot {
+  transform: translate(-28px, -110px) scale(1.14);
+}
+.arc.open .at-stats.hot {
+  transform: translate(28px, -110px) scale(1.14);
+}
+.arc.open .at-more.hot {
+  transform: translate(84px, -84px) scale(1.14);
+}
+/* Backdrop fade */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.22s ease;
+  transition: opacity 0.3s ease;
 }
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-.arc-leave-active {
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-  transform-origin: bottom center;
-}
-.arc-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(12px) scale(0.9);
 }
 .hub-wrap {
   position: fixed;
@@ -278,13 +350,15 @@ onBeforeUnmount(() => {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.41, -0.86, 0.76, 1.89);
 }
 .hub:active {
   transform: scale(0.92); /* press feedback while the hold timer runs */
 }
+/* Reference shrinks the FAB hard (60→40); owner asked for far less, so this
+   is a 64→58 equivalent — it reacts without looking like it deflates. */
 .hub.open {
-  transform: scale(1.06);
+  transform: scale(0.91);
 }
 .hub-icon {
   display: block;
@@ -296,14 +370,12 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .hub,
   .hub-icon,
-  .arc-circle,
+  .arc-btn,
+  .arc-icon,
+  .arc-label,
   .fade-enter-active,
-  .fade-leave-active,
-  .arc-leave-active {
+  .fade-leave-active {
     transition: none;
-  }
-  .arc-btn > * {
-    animation: none;
   }
 }
 </style>
