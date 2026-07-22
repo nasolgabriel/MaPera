@@ -82,4 +82,10 @@ CREATE TABLE IF NOT EXISTS saving_periods (
   rate REAL,
   streak_counted INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS split_presets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  buckets TEXT NOT NULL
+);
 `;

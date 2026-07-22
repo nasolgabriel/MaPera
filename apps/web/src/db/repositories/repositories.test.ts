@@ -9,6 +9,7 @@ import { createGoalsRepo } from './goalsRepo';
 import { createRecurringRepo } from './recurringRepo';
 import { createSavedItemsRepo } from './savedItemsRepo';
 import { createSavingPeriodsRepo } from './savingPeriodsRepo';
+import { createSplitPresetsRepo } from './splitPresetsRepo';
 import { seed } from '../seed';
 
 let db: SqlDriver;
@@ -152,6 +153,20 @@ describe('savingPeriodsRepo', () => {
     expect(await repo.list()).toHaveLength(1);
     await repo.remove('2026-W28');
     expect(await repo.getByPeriod('2026-W28')).toBeNull();
+  });
+});
+
+describe('splitPresetsRepo', () => {
+  it('round-trips create/get/update/delete', async () => {
+    const repo = createSplitPresetsRepo(db);
+    const buckets = JSON.stringify([{ target: { type: 'budget', category_id: 'c1' }, mode: 'percent', value: 5000 }]);
+    await repo.create({ id: 'p1', name: 'Salary', buckets });
+    expect(await repo.getById('p1')).toMatchObject({ name: 'Salary', buckets });
+    await repo.update({ id: 'p1', name: 'Side income', buckets });
+    expect(await repo.getById('p1')).toMatchObject({ name: 'Side income' });
+    expect(await repo.list()).toHaveLength(1);
+    await repo.remove('p1');
+    expect(await repo.getById('p1')).toBeNull();
   });
 });
 

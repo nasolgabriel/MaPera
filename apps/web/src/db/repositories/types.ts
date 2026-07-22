@@ -71,6 +71,13 @@ export interface SavedItem {
   last_used_at: string | null;
 }
 
+export interface SplitPreset {
+  id: string;
+  name: string;
+  /** JSON array of split buckets — parse with domain/split parsePresetBuckets, never eval. */
+  buckets: string;
+}
+
 export interface SavingPeriod {
   period: string;
   saved_amount: number;

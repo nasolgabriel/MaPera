@@ -7,7 +7,8 @@ import { createCapacitorDriver } from './drivers/capacitorDriver';
 import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
-import { seed, seedBudgets } from './seed';
+import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
+import { seed, seedBudgets, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -25,9 +26,15 @@ async function init(): Promise<SqlDriver> {
   const accounts = await createAccountsRepo(db).list();
   if (accounts.length === 0) {
     await seed(db);
-  } else if ((await createBudgetsRepo(db).list()).length === 0) {
-    // Dev DBs created before B2 have no budgets — top up so the hub gauge has data.
-    await seedBudgets(db);
+  } else {
+    if ((await createBudgetsRepo(db).list()).length === 0) {
+      // Dev DBs created before B2 have no budgets — top up so the hub gauge has data.
+      await seedBudgets(db);
+    }
+    if ((await createSplitPresetsRepo(db).list()).length === 0) {
+      // Dev DBs created before B4 have no split presets — top up the starter preset.
+      await seedSplitPresets(db);
+    }
   }
   return db;
 }

@@ -6,6 +6,7 @@ import { seed } from '../db/seed';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import { cashFlow, totalBalance, sNet } from '../domain/stats';
+import { parsePresetBuckets } from '../domain/split';
 
 // Point the store's getDb() at a fresh in-memory driver per test.
 const { dbRef } = vi.hoisted(() => ({ dbRef: { current: null as SqlDriver | null } }));
@@ -113,6 +114,60 @@ describe('ledger store (B1)', () => {
     expect(store.month).toBe('2026-08');
     expect(store.budgets).toHaveLength(0); // seed caps live in 2026-07 only
     expect(store.hubGauge).toBeNull();
+  });
+
+  it('setCap upserts a cap for the visible month and 0 removes it', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    await store.setCap('cat-food', 1200000); // update existing seed cap
+    expect(store.capsByCategory.get('cat-food')).toBe(1200000);
+    await store.setCap('cat-salary', 100000); // create (no seed cap for this category)
+    expect(store.capsByCategory.get('cat-salary')).toBe(100000);
+    await store.setCap('cat-food', 0); // clear → row removed, not a zero cap
+    expect(store.capsByCategory.has('cat-food')).toBe(false);
+    expect(store.budgets.filter((b) => b.category_id === 'cat-food')).toHaveLength(0);
+  });
+
+  // B4 accept: split of seed salary allocates exactly, in centavos.
+  it('applySplit on the seed salary writes exact caps + one savings transfer', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    const buckets = parsePresetBuckets(store.presets[0]!.buckets)!;
+    expect(buckets).toHaveLength(3);
+    // Income lands on the REGULAR account so the ₱2,000 fixed bucket becomes a real
+    // regular→savings transfer (acc-bank is savings-flagged).
+    const income = await store.addTransaction({
+      amount: 2000000, kind: 'income', account_id: 'acc-cash',
+      to_account_id: null, category_id: 'cat-salary', date: '2026-07-15', note: 'Salary',
+    });
+    await store.setCap('cat-food', 111); // pre-set garbage cap: applySplit must overwrite it
+    await store.applySplit(income, buckets);
+
+    expect(store.capsByCategory.get('cat-food')).toBe(1000000); // 50% of 2,000,000 exactly
+    expect(store.capsByCategory.get('cat-transport')).toBe(500000); // 25% exactly
+    const transfer = store.transactions.find((t) => t.kind === 'transfer' && t.amount === 200000);
+    expect(transfer).toMatchObject({ account_id: 'acc-cash', to_account_id: 'acc-bank', date: '2026-07-15' });
+
+    const { accounts, txns } = await snapshot();
+    expect(sNet(accounts, txns, MONTH)).toBe(200000); // fixed bucket = S contribution (§7.2)
+    // Invariants 1+2: the split's transfer conserves total_balance ↔ cash_flow.
+    expect(cashFlow(accounts, txns, MONTH)).toBe(totalBalance(accounts, txns));
+  });
+
+  it('applySplit skips self-transfers when income lands on the target account', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    const buckets = parsePresetBuckets(store.presets[0]!.buckets)!;
+    const income = await store.addTransaction({
+      amount: 2000000, kind: 'income', account_id: 'acc-bank', // = the preset's fixed target
+      to_account_id: null, category_id: 'cat-salary', date: '2026-07-15', note: null,
+    });
+    await store.applySplit(income, buckets);
+    expect(store.transactions.filter((t) => t.kind === 'transfer')).toHaveLength(0);
+    expect(store.capsByCategory.get('cat-food')).toBe(1000000); // caps still applied
   });
 
   it('a "Saving" transfer counts in S_net, not in cash_flow', async () => {

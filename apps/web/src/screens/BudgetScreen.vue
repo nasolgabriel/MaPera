@@ -162,18 +162,22 @@ onMounted(async () => {
 
     <div class="hero">
       <DonutChart :slices="donutSlices" :size="180" @select="onSliceSelect">
-        <template v-if="store.capTotal > 0">
-          <span class="donut-tag mono">remaining</span>
-          <span :class="['donut-value', 'amount', { over: store.remainingBudget < 0 }]">
-            {{ pesoWhole(store.remainingBudget) }}
-          </span>
-          <span class="donut-sub mono">of {{ pesoWhole(store.capTotal) }}</span>
-        </template>
-        <template v-else>
-          <span class="donut-tag mono">spent</span>
-          <span class="donut-value amount">{{ pesoWhole(totalSpent) }}</span>
-          <span class="donut-sub mono">no caps set</span>
-        </template>
+        <!-- Center tap → caps screen (B4). DonutChart's .center is pointer-events:none,
+             so the button re-enables them for itself only — slices stay clickable. -->
+        <button class="donut-center" aria-label="Budget caps" @click="router.push('/caps')">
+          <template v-if="store.capTotal > 0">
+            <span class="donut-tag mono">remaining</span>
+            <span :class="['donut-value', 'amount', { over: store.remainingBudget < 0 }]">
+              {{ pesoWhole(store.remainingBudget) }}
+            </span>
+            <span class="donut-sub mono">of {{ pesoWhole(store.capTotal) }}</span>
+          </template>
+          <template v-else>
+            <span class="donut-tag mono">spent</span>
+            <span class="donut-value amount">{{ pesoWhole(totalSpent) }}</span>
+            <span class="donut-sub mono">no caps set</span>
+          </template>
+        </button>
       </DonutChart>
     </div>
 
@@ -266,6 +270,17 @@ onMounted(async () => {
   display: flex;
   justify-content: center;
   padding: 4px 0;
+}
+.donut-center {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  background: transparent;
 }
 .donut-tag {
   font-size: 10px;

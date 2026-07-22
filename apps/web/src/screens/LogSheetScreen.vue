@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
 import { isSavingsAccount } from '../domain/stats';
+import PaydaySplitSheet from '../components/PaydaySplitSheet.vue';
 import type { Transaction } from '../db/repositories/types';
 
 type Kind = 'expense' | 'income' | 'saving';
@@ -21,6 +22,8 @@ const toAccountId = ref<string | null>(null);
 const date = ref(new Date().toISOString().slice(0, 10));
 const note = ref('');
 const saving = ref(false);
+// §7.3: after logging a NEW income, offer the payday split (never on edits, never forced).
+const splitTxn = ref<Transaction | null>(null);
 
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const centavos = computed(() => (amountDigits.value ? parseInt(amountDigits.value, 10) : 0));
@@ -85,7 +88,11 @@ async function save(): Promise<void> {
     if (editing.value) {
       await store.updateTransaction({ ...editing.value, ...fields });
     } else {
-      await store.addTransaction(fields);
+      const txn = await store.addTransaction(fields);
+      if (txn.kind === 'income') {
+        splitTxn.value = txn; // stay here — the split sheet takes over, Skip/Apply go home
+        return;
+      }
     }
     router.push('/');
   } finally {
@@ -181,6 +188,8 @@ onMounted(async () => {
     </div>
 
     <button class="save" :disabled="!canSave" @click="save">{{ saving ? '…' : 'Save' }}</button>
+
+    <PaydaySplitSheet v-if="splitTxn" :txn="splitTxn" @done="router.push('/')" />
   </main>
 </template>
 
