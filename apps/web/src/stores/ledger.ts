@@ -11,8 +11,12 @@ import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import {
   budgetConsumed, budgetRemaining, budgetUsed, categorySpent, dailySafeSpend, spentByCategory, totalCap,
 } from '../domain/budgets';
+import {
+  addDays, averagePerDay, dailyCapAverage, daysInMonth, lastSevenDays, monthGrid, spendByDay,
+  spendByDayInRange, sumSpend,
+} from '../domain/calendar';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
-import { accountBalance } from '../domain/stats';
+import { accountBalance, momChange } from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
 import type { Account, Budget, Category, SplitPreset, Transaction } from '../db/repositories/types';
 import type { SplitBucket } from '../domain/split';
@@ -31,7 +35,13 @@ export interface NewTransaction {
 const RECENTS_LIMIT = 5; // §6.1 recents = last 5 transactions
 
 function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+  return todayISO().slice(0, 7);
+}
+
+/** Local calendar day as ISO 'YYYY-MM-DD' (toISOString would shift by the UTC offset). */
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export const useLedgerStore = defineStore('ledger', () => {
@@ -88,13 +98,42 @@ export const useLedgerStore = defineStore('ledger', () => {
       ),
   );
   /** Days left in the visible month incl. today; 0 when the month is over. */
-  const daysLeft = computed(() => daysLeftInMonth(new Date().toISOString().slice(0, 10), month.value));
+  const daysLeft = computed(() => daysLeftInMonth(todayISO(), month.value));
   /** daily_safe_spend(t) (§8.4) — only meaningful for the real current month, else null. */
   const safeSpendToday = computed(() =>
     month.value === currentMonth()
       ? dailySafeSpend(accounts.value, transactions.value, budgets.value, month.value, daysLeft.value)
       : null,
   );
+
+  // ── A1b month banner + A1/A1c spend graph (all geometry/levels from domain/calendar) ──
+
+  /** Spend per ISO date inside the visible month (calendar heat strip). */
+  const daySpends = computed(() => spendByDay(accounts.value, transactions.value, month.value));
+  /** Σ cap spread over the month — the per-day "over cap" line; null when no caps (§8.7). */
+  const dayCap = computed(() => dailyCapAverage(capTotal.value, month.value));
+  /** Monday-start grid cells for the visible month, padded to whole weeks. */
+  const monthCells = computed(() => monthGrid(month.value, todayISO(), daySpends.value, dayCap.value));
+
+  /** Graph window ends today in the live month, else on the visible month's last day. */
+  const weekEnd = computed(() =>
+    month.value === currentMonth()
+      ? todayISO()
+      : `${month.value}-${String(daysInMonth(month.value)).padStart(2, '0')}`,
+  );
+  /** Spend map covering both compared weeks (crosses month boundaries — hence the range query). */
+  const twoWeekSpends = computed(() =>
+    spendByDayInRange(accounts.value, transactions.value, addDays(weekEnd.value, -13), weekEnd.value),
+  );
+  /** The 7 days ending at weekEnd, oldest first, zero-filled. */
+  const weekDays = computed(() => lastSevenDays(twoWeekSpends.value, weekEnd.value));
+  /** The 7 days before those — the comparison window. */
+  const previousWeekDays = computed(() => lastSevenDays(twoWeekSpends.value, addDays(weekEnd.value, -7)));
+  const weekTotal = computed(() => sumSpend(weekDays.value));
+  const previousWeekTotal = computed(() => sumSpend(previousWeekDays.value));
+  /** mom_change over 7-day windows (§8.7) — previous week 0 → null, render "—". */
+  const weekChange = computed(() => momChange(weekTotal.value, previousWeekTotal.value));
+  const weekAverage = computed(() => averagePerDay(weekDays.value));
 
   async function load(): Promise<void> {
     const db = await getDb();
@@ -206,6 +245,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     accounts, categories, transactions, budgets, presets, month, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
+    daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
     load, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
   };

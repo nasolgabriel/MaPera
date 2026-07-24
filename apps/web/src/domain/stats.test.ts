@@ -10,6 +10,7 @@ import {
   sNet,
   freeCashFlow,
   isSavingsAccount,
+  momChange,
 } from './stats';
 
 function acc(id: string, type: Account['type'], starting = 0, archived = false): Account {
@@ -148,5 +149,21 @@ describe('invariant 6 — backdated transactions re-bucket into the right month'
     expect(cashFlow(accounts, t, '2026-06')).toBe(500000);
     // total_balance is date-agnostic: both entries always counted.
     expect(totalBalance(accounts, t)).toBe(2500000);
+  });
+});
+
+describe('momChange — §8.7 trends', () => {
+  it('is the signed percentage change vs the previous period', () => {
+    expect(momChange(110, 100)).toBeCloseTo(10);
+    expect(momChange(92, 100)).toBeCloseTo(-8); // "▼ 8% vs last week"
+  });
+
+  it('uses |previous| so a negative baseline keeps the direction readable', () => {
+    expect(momChange(-50, -100)).toBeCloseTo(50);
+  });
+
+  it('previous = 0 → null, never Infinity/NaN', () => {
+    expect(momChange(500, 0)).toBeNull();
+    expect(momChange(0, 0)).toBeNull();
   });
 });

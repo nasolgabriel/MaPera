@@ -27,6 +27,24 @@ describe('app shell', () => {
     expect(wrapper.find('.month-label').exists()).toBe(true)
   })
 
+  it('opens the A1b month banner from the month chip (E2)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, {
+      global: { plugins: [createPinia(), router] },
+    })
+    await router.push('/')
+    await flushPromises()
+
+    const chip = wrapper.find('.month-chip')
+    expect(chip.attributes('aria-expanded')).toBe('false')
+    await chip.trigger('click')
+    expect(chip.attributes('aria-expanded')).toBe('true')
+    // July 2026: 2 leading blanks + 31 day buttons, padded to 35 cells.
+    expect(wrapper.findAll('.banner .cell')).toHaveLength(31)
+    expect(wrapper.findAll('.banner .blank')).toHaveLength(4)
+  })
+
   it('has routes for all seven screens', () => {
     const names = router.getRoutes().map((r) => r.name)
     expect(names).toEqual(

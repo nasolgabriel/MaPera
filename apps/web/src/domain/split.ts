@@ -1,5 +1,6 @@
 // Domain — §7.3 payday split. PURE functions only, no imports from ui/db.
 // All money integer centavos; percentages integer basis points (5000 = 50%) — no floats.
+import { daysInMonth } from './calendar';
 
 /** Where an allocation goes: a category cap for the month, or a transfer to an account. */
 export type SplitTarget =
@@ -86,12 +87,8 @@ export function parsePresetBuckets(json: string): SplitBucket[] | null {
  * Month already past → 0 (dailySafeSpend guard renders "—"); future month → full length.
  */
 export function daysLeftInMonth(todayISO: string, month: string): number {
-  const daysInMonth = new Date(
-    Number(month.slice(0, 4)),
-    Number(month.slice(5, 7)), // JS month index of NEXT month, day 0 = last day of `month`
-    0,
-  ).getDate();
+  const length = daysInMonth(month); // shared with the calendar grid — one definition
   const todayMonth = todayISO.slice(0, 7);
-  if (todayMonth === month) return daysInMonth - Number(todayISO.slice(8, 10)) + 1;
-  return todayMonth > month ? 0 : daysInMonth;
+  if (todayMonth === month) return length - Number(todayISO.slice(8, 10)) + 1;
+  return todayMonth > month ? 0 : length;
 }

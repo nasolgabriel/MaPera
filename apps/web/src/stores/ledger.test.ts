@@ -183,3 +183,51 @@ describe('ledger store (B1)', () => {
     expect(cashFlow(accounts, txns, MONTH)).toBe(before); // transfer doesn't touch cash flow
   });
 });
+
+describe('budget home calendar + graph wiring (E2)', () => {
+  it('monthCells lay out the visible month and recompute after add/delete (invariant 4)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    expect(store.monthCells).toHaveLength(35); // 2 leading blanks + 31 days + 2 trailing
+    const dayOf = (day: number) => store.monthCells.find((c) => c.day === day)!;
+    expect(dayOf(5).spend).toBe(900000); // seed food expense
+    expect(dayOf(6).spend).toBe(450000); // seed transport expense
+    expect(dayOf(12).spend).toBe(0);
+
+    await store.addTransaction({
+      amount: 25000, kind: 'expense', account_id: 'acc-cash',
+      to_account_id: null, category_id: 'cat-food', date: '2026-07-12', note: null,
+    });
+    expect(store.monthCells.find((c) => c.day === 12)?.spend).toBe(25000);
+
+    await store.deleteTransaction('txn-expense-2');
+    expect(store.monthCells.find((c) => c.day === 6)?.spend).toBe(0);
+  });
+
+  it('dayCap spreads Σ cap over the month and is null without caps (§8.7)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.dayCap).toBeCloseTo(1500000 / 31);
+
+    await store.setMonth('2026-08'); // no caps seeded there
+    expect(store.dayCap).toBeNull();
+    expect(store.monthCells.some((c) => c.level === 'over')).toBe(false);
+  });
+
+  it('weekDays is a 7-day window and weekChange guards a zero previous week', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.weekDays).toHaveLength(7);
+    // Browsing a past month ends the window on that month's last day.
+    await store.setMonth('2026-06');
+    expect(store.weekDays[6]?.date).toBe('2026-06-30');
+    expect(store.weekTotal).toBe(0);
+    expect(store.previousWeekTotal).toBe(0);
+    expect(store.weekChange).toBeNull(); // no division by zero
+    expect(store.weekAverage).toBe(0);
+  });
+});

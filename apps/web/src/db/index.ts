@@ -8,7 +8,8 @@ import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
-import { seed, seedBudgets, seedSplitPresets } from './seed';
+import { createTransactionsRepo } from './repositories/transactionsRepo';
+import { seed, seedBudgets, seedDailySpend, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -35,6 +36,11 @@ async function init(): Promise<SqlDriver> {
       // Dev DBs created before B4 have no split presets — top up the starter preset.
       await seedSplitPresets(db);
     }
+  }
+  // Day-to-day spend lives outside seed() so tests keep the exact §8.1 totals; the app
+  // wants it or the calendar heat strip and 7-day graph draw an empty month (E2).
+  if ((await createTransactionsRepo(db).getById('txn-daily-01')) === null) {
+    await seedDailySpend(db);
   }
   return db;
 }

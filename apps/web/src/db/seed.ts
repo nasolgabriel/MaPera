@@ -53,6 +53,49 @@ export async function seedBudgets(db: SqlDriver): Promise<void> {
   await budgets.create({ id: 'bud-transport', category_id: 'cat-transport', month: '2026-07', cap_amount: 500000 });
 }
 
+/**
+ * Dev-only spread: small day-to-day expenses across 2026-07-08 … 2026-07-21 so the
+ * A1b heat strip and the A1/A1c 7-day graph have a shape to draw (the worked-example
+ * rows above are two big lumps on Jul 5/6, leaving the last two weeks empty).
+ *
+ * They land in a NEW UNCAPPED category on purpose: `budgetConsumed`/`budgetRemaining`
+ * only count categories that have a cap, so the documented dev numbers survive — hub
+ * gauge still 0.9, donut center still ₱1,500 remaining of ₱15,000 — while the calendar
+ * and graph get real per-day totals. Jul 16 carries two rows (₱530 total) so it clears
+ * the ₱15,000/31 ≈ ₱484 per-day cap line and renders the saffron "over cap" state.
+ *
+ * NOT called from seed(): every domain/repo/store test asserts against the §8.1 totals
+ * (cash_flow 650000, hub gauge 0.9). Only db/index.ts (the app path) adds these.
+ */
+export async function seedDailySpend(db: SqlDriver): Promise<void> {
+  const categories = createCategoriesRepo(db);
+  if ((await categories.getById('cat-shopping')) === null) {
+    await categories.create({ id: 'cat-shopping', name: 'Shopping', icon: 'bag', kind: 'expense', sort_order: 2 });
+  }
+
+  const transactions = createTransactionsRepo(db);
+  const rows: Array<[string, number, string, string, string]> = [
+    ['txn-daily-01', 12000, 'acc-cash', '2026-07-08', 'Load'],
+    ['txn-daily-02', 26000, 'acc-cash', '2026-07-09', 'Ligo Sardines'],
+    ['txn-daily-03', 18500, 'acc-bank', '2026-07-11', 'Soap + shampoo'],
+    ['txn-daily-04', 9000, 'acc-cash', '2026-07-13', 'Notebook'],
+    ['txn-daily-05', 31000, 'acc-bank', '2026-07-14', 'Slippers'],
+    ['txn-daily-06', 38000, 'acc-bank', '2026-07-16', 'Birthday gift'],
+    ['txn-daily-07', 15000, 'acc-cash', '2026-07-16', 'Wrapping + card'],
+    ['txn-daily-08', 14000, 'acc-cash', '2026-07-17', 'Phone case'],
+    ['txn-daily-09', 22000, 'acc-bank', '2026-07-19', 'Palengke basket'],
+    ['txn-daily-10', 7500, 'acc-cash', '2026-07-20', 'Batteries'],
+    ['txn-daily-11', 16500, 'acc-cash', '2026-07-21', 'Socks'],
+  ];
+  for (const [id, amount, account_id, date, note] of rows) {
+    await transactions.create({
+      id, amount, kind: 'expense', account_id, to_account_id: null,
+      category_id: 'cat-shopping', date, note,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    });
+  }
+}
+
 // One starter preset (§7.3: 50/30/20 is a starter, never a limit). Applying it to the
 // seed salary allocates 1,000,000 + 500,000 + 200,000 centavos, ₱3,000 left free.
 // Exported separately so db/index.ts can top up pre-B4 dev DBs.

@@ -101,6 +101,16 @@ export function sNet(accounts: Account[], transactions: Transaction[], month: st
   return net;
 }
 
+/**
+ * mom_change(x,t) = (x(t) − x(t−1)) / |x(t−1)| × 100. §8.7
+ * Denominator 0 → null so callers render "—", never NaN/Infinity. Named for months but
+ * period-agnostic — the budget home compares 7-day windows with it.
+ */
+export function momChange(current: number, previous: number): number | null {
+  if (previous === 0) return null;
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
 /** free_cash_flow(t) = I(t) − E(t) − S_net(t). §8.1 */
 export function freeCashFlow(accounts: Account[], transactions: Transaction[], month: string): number {
   return cashFlow(accounts, transactions, month) - sNet(accounts, transactions, month);
