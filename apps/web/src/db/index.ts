@@ -8,9 +8,10 @@ import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createGoalsRepo } from './repositories/goalsRepo';
+import { createRecurringRepo } from './repositories/recurringRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
-import { seed, seedBudgets, seedDailySpend, seedSavings, seedSplitPresets } from './seed';
+import { seed, seedBudgets, seedDailySpend, seedRecurring, seedSavings, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -46,6 +47,11 @@ async function init(): Promise<SqlDriver> {
   // Savings accounts + a goal (B5) — same test-preserving reason: app path only.
   if ((await createGoalsRepo(db).list()).length === 0) {
     await seedSavings(db);
+  }
+  // Recurring auto-transfers + dues (B6) — app path only; the auto-transfer would perturb
+  // §8.1 totals if it ran in tests, so it lives outside seed() like the others.
+  if ((await createRecurringRepo(db).list()).length === 0) {
+    await seedRecurring(db);
   }
   return db;
 }

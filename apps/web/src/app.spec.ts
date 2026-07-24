@@ -4,6 +4,7 @@ import { createPinia } from 'pinia'
 import { createSqlJsDriver } from './db/drivers/sqljsDriver'
 import { seed } from './db/seed'
 import { createGoalsRepo } from './db/repositories/goalsRepo'
+import { createRecurringRepo } from './db/repositories/recurringRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
 import { router } from './router'
@@ -80,5 +81,35 @@ describe('app shell', () => {
     expect(wrapper.text()).toContain('Laptop fund')
     expect(wrapper.find('.ring').exists()).toBe(true) // GoalRing rendered
     expect(wrapper.text()).toContain('+ New goal')
+  })
+
+  // Like the month-banner test above, this assumes "now" is the seed month (July 2026).
+  it('renders the monthly dues card and opens the breakdown sheet (B6)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const rec = createRecurringRepo(dbRef.current)
+    const tmpl = (o: Record<string, unknown>) =>
+      JSON.stringify({ to_account_id: null, category_id: null, note: null, total_payments: null, interval_months: null, ...o })
+    await rec.create({ id: 'rec-netflix', template: tmpl({ amount: 54900, kind: 'expense', account_id: 'acc-bank', note: 'Netflix' }), kind: 'subscription', frequency: 'monthly', next_due: '2026-07-15', auto_post: false, remaining_payments: null })
+    await rec.create({ id: 'rec-spotify', template: tmpl({ amount: 14900, kind: 'expense', account_id: 'acc-bank', note: 'Spotify' }), kind: 'subscription', frequency: 'monthly', next_due: '2026-07-20', auto_post: false, remaining_payments: null })
+    await rec.create({ id: 'rec-loan', template: tmpl({ amount: 230000, kind: 'expense', account_id: 'acc-bank', note: 'Gadget loan', total_payments: 24 }), kind: 'loan', frequency: 'monthly', next_due: '2026-07-30', auto_post: false, remaining_payments: 10 })
+    await rec.create({ id: 'rec-google', template: tmpl({ amount: 97900, kind: 'expense', account_id: 'acc-bank', note: 'Google One', interval_months: 12 }), kind: 'bill', frequency: 'custom', next_due: '2026-08-10', auto_post: false, remaining_payments: null })
+
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/')
+    await flushPromises()
+
+    const card = wrapper.find('.dues-card')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('Dues this month')
+    expect(card.text()).toContain('2,998') // 549 + 149 + 2,300
+    expect(card.text()).toContain('0 of 3 paid') // Google One is August
+
+    await card.trigger('click')
+    await flushPromises()
+    const sheet = wrapper.find('[aria-label="Monthly dues"]')
+    expect(sheet.exists()).toBe(true)
+    expect(sheet.text()).toContain('14 of 24') // loan progress
+    expect(sheet.text()).toContain('Google One lands in August') // next-month diff note
   })
 })

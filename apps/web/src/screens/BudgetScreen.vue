@@ -6,6 +6,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
 import DonutChart from '../components/DonutChart.vue';
+import DuesCard from '../components/DuesCard.vue';
+import DuesSheet from '../components/DuesSheet.vue';
 import MonthBanner from '../components/MonthBanner.vue';
 import SpendGraph from '../components/SpendGraph.vue';
 import type { DonutSlice } from '../components/DonutChart.vue';
@@ -107,6 +109,10 @@ function shortDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y!, m! - 1, d!).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 }
+
+// ── §7.5 dues card + breakdown sheet ──
+const duesOpen = ref(false);
+const duesPaidCount = computed(() => store.duesRows.filter((r) => r.paid).length);
 
 // ── A1b month banner ──
 const bannerOpen = ref(false);
@@ -303,6 +309,7 @@ onBeforeUnmount(() => {
       <MonthBanner
         v-if="bannerOpen"
         :cells="store.monthCells"
+        :due-dates="store.dueDates"
         :selected-date="selectedDay"
         @select="onDaySelect"
         @whole-month="onWholeMonth"
@@ -372,6 +379,15 @@ onBeforeUnmount(() => {
         <div class="acct-balance mono">{{ ((store.accountBalances.get(a.id) ?? 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) }}</div>
       </div>
     </div>
+
+    <!-- §7.5 Monthly dues card — between account chips and recents (README §6.1). -->
+    <DuesCard
+      v-if="store.duesRows.length > 0"
+      :total="store.duesTotal"
+      :paid-count="duesPaidCount"
+      :due-count="store.duesRows.length"
+      @open="duesOpen = true"
+    />
 
     <div class="list-head">
       <span v-if="filter === null" class="mono list-tag">recent</span>
@@ -445,6 +461,17 @@ onBeforeUnmount(() => {
       :day-cap="store.dayCap"
       :today-date="store.weekDays[store.weekDays.length - 1]?.date ?? ''"
       :expanded="graphExpanded"
+    />
+
+    <DuesSheet
+      v-if="duesOpen"
+      :rows="store.duesRows"
+      :total="store.duesTotal"
+      :still-due="store.duesStillDue"
+      :month="store.month"
+      :next-month="store.duesNextMonth"
+      @log-due="store.logDue"
+      @close="duesOpen = false"
     />
   </main>
 </template>

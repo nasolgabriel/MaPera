@@ -7,11 +7,16 @@ import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
 import { createCategoriesRepo } from '../db/repositories/categoriesRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
+import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createSplitPresetsRepo } from '../db/repositories/splitPresetsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import {
   budgetConsumed, budgetRemaining, budgetUsed, categorySpent, dailySafeSpend, spentByCategory, totalCap,
 } from '../domain/budgets';
+import {
+  dueNextMonth, dueThisMonth, duesTotal as sumDueRows, nextDueAfter, parseRecurringTemplate,
+  stillDue as sumUnpaid,
+} from '../domain/dues';
 import {
   addDays, averagePerDay, dailyCapAverage, daysInMonth, lastSevenDays, monthGrid, spendByDay,
   spendByDayInRange, sumSpend,
@@ -24,10 +29,12 @@ import {
   accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
 } from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Budget, Category, Goal, SplitPreset, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, Goal, Recurring, SplitPreset, Transaction } from '../db/repositories/types';
+import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
 
-/** Fields the log sheet supplies; the store fills id + the B10/B6/B11 link columns. */
+/** Fields the log sheet supplies; the store fills id + the B10/B11 link columns.
+ *  recurring_id is optional so the B6 engine + logDue can link a posted due; default null. */
 export interface NewTransaction {
   amount: number; // integer centavos
   kind: Transaction['kind'];
@@ -36,6 +43,24 @@ export interface NewTransaction {
   category_id: string | null;
   date: string; // ISO YYYY-MM-DD
   note: string | null;
+  recurring_id?: string | null;
+}
+
+/** True once a loan has no scheduled payments left (§8.5). */
+function loanExhausted(r: Recurring): boolean {
+  return r.kind === 'loan' && r.remaining_payments !== null && r.remaining_payments <= 0;
+}
+
+/** Advance a recurring one cycle: roll next_due (day-clamped) and count a loan down by one. */
+function advanceRecurring(r: Recurring, tmpl: RecurringTemplate): Recurring {
+  return {
+    ...r,
+    next_due: nextDueAfter(r.next_due, r.frequency, tmpl.interval_months),
+    remaining_payments:
+      r.kind === 'loan' && r.remaining_payments !== null
+        ? Math.max(0, r.remaining_payments - 1)
+        : r.remaining_payments,
+  };
 }
 
 const RECENTS_LIMIT = 5; // §6.1 recents = last 5 transactions
@@ -57,6 +82,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   const budgets = ref<Budget[]>([]);
   const presets = ref<SplitPreset[]>([]);
   const goals = ref<Goal[]>([]);
+  const recurring = ref<Recurring[]>([]); // §7.3/§7.5 auto-transfers + dues
   const month = ref(currentMonth()); // §6.1 month switcher moves this
   const loaded = ref(false);
 
@@ -172,6 +198,32 @@ export const useLedgerStore = defineStore('ledger', () => {
       ),
   );
 
+  // ── B6 Recurring + dues (§7.5 / §8.5) — all money math via domain/dues ──
+
+  /** Dues scheduled in the visible month (§8.5), paid flag from linked transactions. */
+  const duesRows = computed(() => dueThisMonth(recurring.value, transactions.value, month.value));
+  /** due_this_month total — the stable card figure (never touches E until a due is logged). */
+  const duesTotal = computed(() => sumDueRows(duesRows.value));
+  /** still_due (§8.5) — Σ of the unpaid rows. */
+  const duesStillDue = computed(() => sumUnpaid(duesRows.value));
+  /** due_next_month projection + one-line diff note (§8.5). */
+  const duesNextMonth = computed(() => dueNextMonth(recurring.value, month.value));
+  /** ISO due dates in the visible month — lights the MonthBanner saffron dots. */
+  const dueDates = computed(() =>
+    duesRows.value.map((r) => `${month.value}-${String(r.dueDay).padStart(2, '0')}`),
+  );
+  /** Auto-transfer badge per destination savings account (§6.3): {amount, dueDay}. */
+  const autoTransferByAccount = computed(() => {
+    const map = new Map<string, { amount: number; dueDay: number }>();
+    for (const r of recurring.value) {
+      if (r.kind !== 'transfer' || !r.auto_post) continue;
+      const tmpl = parseRecurringTemplate(r.template);
+      if (tmpl === null || tmpl.to_account_id === null) continue;
+      map.set(tmpl.to_account_id, { amount: tmpl.amount, dueDay: Number(r.next_due.slice(8, 10)) });
+    }
+    return map;
+  });
+
   async function load(): Promise<void> {
     const db = await getDb();
     accounts.value = await createAccountsRepo(db).list();
@@ -179,7 +231,9 @@ export const useLedgerStore = defineStore('ledger', () => {
     budgets.value = await createBudgetsRepo(db).listByMonth(month.value);
     presets.value = await createSplitPresetsRepo(db).list();
     goals.value = await createGoalsRepo(db).list();
+    recurring.value = await createRecurringRepo(db).list();
     await refreshTransactions(db);
+    await runRecurring(); // §7.3 catch-up: post any auto-transfers/dues that came due while away
     loaded.value = true;
   }
 
@@ -189,12 +243,13 @@ export const useLedgerStore = defineStore('ledger', () => {
 
   async function addTransaction(input: NewTransaction): Promise<Transaction> {
     const db = await getDb();
+    const { recurring_id = null, ...fields } = input;
     const txn: Transaction = {
       id: crypto.randomUUID(),
       discount_rule_id: null,
-      recurring_id: null,
+      recurring_id, // §7.5: set by the recurring engine + logDue, else null
       saved_item_id: null,
-      ...input,
+      ...fields,
     };
     await createTransactionsRepo(db).create(txn);
     await refreshTransactions(db);
@@ -319,14 +374,68 @@ export const useLedgerStore = defineStore('ledger', () => {
     presets.value = await repo.list();
   }
 
+  /** Post a recurring's linked transaction (amount/fields from its template). The recurring_id
+   *  link is what lets the dues card mark it paid (§7.5) without double-counting into E. */
+  async function postRecurring(r: Recurring, tmpl: RecurringTemplate): Promise<void> {
+    await addTransaction({
+      amount: tmpl.amount,
+      kind: tmpl.kind,
+      account_id: tmpl.account_id,
+      to_account_id: tmpl.to_account_id,
+      category_id: tmpl.category_id,
+      date: r.next_due,
+      note: tmpl.note,
+      recurring_id: r.id,
+    });
+  }
+
+  /** §7.3 recurring engine — runs on app-open (from load). Posts every auto_post recurring
+   *  whose next_due has arrived, catching up ALL missed cycles, rolling the schedule forward
+   *  and counting loans down. auto_post=false rows are left as dues for the user to "Log it".
+   *  `today` is injectable for tests; production uses the local calendar day. */
+  async function runRecurring(today = todayISO()): Promise<void> {
+    const db = await getDb();
+    const repo = createRecurringRepo(db);
+    let posted = false;
+    for (const r of await repo.list()) {
+      if (!r.auto_post) continue;
+      const tmpl = parseRecurringTemplate(r.template);
+      if (tmpl === null) continue;
+      let current = r;
+      while (current.next_due <= today && !loanExhausted(current)) {
+        await postRecurring(current, tmpl);
+        posted = true;
+        current = advanceRecurring(current, tmpl);
+        await repo.update(current);
+      }
+    }
+    recurring.value = await repo.list();
+    if (posted) await refreshTransactions(db);
+  }
+
+  /** §7.5 "Log it": post an asks-first due's linked transaction now + advance its schedule.
+   *  The amount comes from the template — this is the only thing that makes a due hit E. */
+  async function logDue(recurringId: string): Promise<void> {
+    const db = await getDb();
+    const repo = createRecurringRepo(db);
+    const r = await repo.getById(recurringId);
+    if (r === null) return;
+    const tmpl = parseRecurringTemplate(r.template);
+    if (tmpl === null) return;
+    await postRecurring(r, tmpl);
+    await repo.update(advanceRecurring(r, tmpl));
+    recurring.value = await repo.list();
+  }
+
   return {
-    accounts, categories, transactions, budgets, presets, goals, month, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, recurring, month, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
     savingsAccountsView, totalSavedAmount, savingsRateInfo, goalAvgContribution, goalProjections,
+    duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
     load, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
-    addToGoal, saveGoal, deleteGoal,
+    addToGoal, saveGoal, deleteGoal, runRecurring, logDue,
   };
 });

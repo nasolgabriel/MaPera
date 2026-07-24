@@ -37,6 +37,19 @@ function monthText(month: string | null): string {
   return new Date(y!, m! - 1, 1).toLocaleDateString('en-PH', { month: 'short', year: 'numeric' });
 }
 
+function ordinal(day: number): string {
+  const tens = day % 100;
+  if (tens >= 11 && tens <= 13) return `${day}th`;
+  return `${day}${['th', 'st', 'nd', 'rd'][day % 10] ?? 'th'}`;
+}
+
+/** §6.3 auto-transfer badge — `auto ₱2,000 / 30th` from the B6 recurring engine, or null. */
+function autoBadge(accountId: string): string | null {
+  const t = store.autoTransferByAccount.get(accountId);
+  if (!t) return null;
+  return `auto ₱${(t.amount / 100).toLocaleString('en-PH', { maximumFractionDigits: 0 })} / ${ordinal(t.dueDay)}`;
+}
+
 const liveMonthLabel = new Date().toLocaleDateString('en-PH', { month: 'long' });
 
 /** `15% · Gold` for the hero, or a nudge when there's no rate to show (invariant 5). */
@@ -103,7 +116,9 @@ onMounted(async () => {
       >
         <div class="acct-info">
           <div class="acct-name">{{ row.account.name }}</div>
-          <div class="acct-type mono">{{ TYPE_LABEL[row.account.type] }}</div>
+          <div class="acct-type mono">
+            {{ TYPE_LABEL[row.account.type] }}<template v-if="autoBadge(row.account.id)"> · <span class="auto-badge">{{ autoBadge(row.account.id) }}</span></template>
+          </div>
         </div>
         <div class="acct-balance" :style="{ color: row.account.essence_color }">
           {{ balanceText(row.balance) }}
@@ -217,6 +232,9 @@ onMounted(async () => {
 .acct-type {
   font-size: 9px;
   color: var(--color-textDim);
+}
+.auto-badge {
+  color: var(--color-accentText); /* saffron-dark: a money moment (§5) */
 }
 .acct-balance {
   font-family: 'Spline Sans Mono', monospace;

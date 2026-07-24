@@ -3,8 +3,10 @@ import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createCategoriesRepo } from './repositories/categoriesRepo';
 import { createGoalsRepo } from './repositories/goalsRepo';
+import { createRecurringRepo } from './repositories/recurringRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
+import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
 
 export async function seed(db: SqlDriver): Promise<void> {
@@ -139,6 +141,48 @@ export async function seedSavings(db: SqlDriver): Promise<void> {
       deadline: null, account_id: 'acc-bank', saved_amount: 1140000,
     });
   }
+}
+
+/**
+ * Dev-only recurring rows (B6): one auto-transfer + three asks-first dues + one annual.
+ * Reproduces the wireframe B2 dues scene — July dues = ₱2,998 (549 + 149 + 2,300), the
+ * Gadget loan reads "14 of 24" (24 total − 10 remaining), and Google One (annual, Aug)
+ * makes next month project to ₱3,977 with a "+₱979 — Google One annual lands in August" note.
+ *
+ * NOT called from seed(): every domain/repo/store test asserts against the §8.1 totals, and
+ * the auto-transfer (auto_post) would post an extra transfer on/after the 30th. App path only,
+ * exactly like seedSavings/seedDailySpend. The subscriptions/loan debit BPI and are UNCAPPED
+ * (category_id null), so logging one never touches the documented budget donut numbers.
+ */
+export async function seedRecurring(db: SqlDriver): Promise<void> {
+  const tmpl = (t: RecurringTemplate): string => JSON.stringify(t);
+  const base = { to_account_id: null, category_id: null, total_payments: null, interval_months: null } as const;
+
+  await createRecurringRepo(db).create({
+    id: 'rec-auto-maya',
+    template: tmpl({ ...base, amount: 200000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-maya', note: 'Auto-save' }),
+    kind: 'transfer', frequency: 'monthly', next_due: '2026-07-30', auto_post: true, remaining_payments: null,
+  });
+  await createRecurringRepo(db).create({
+    id: 'rec-netflix',
+    template: tmpl({ ...base, amount: 54900, kind: 'expense', account_id: 'acc-bank', note: 'Netflix' }),
+    kind: 'subscription', frequency: 'monthly', next_due: '2026-07-15', auto_post: false, remaining_payments: null,
+  });
+  await createRecurringRepo(db).create({
+    id: 'rec-spotify',
+    template: tmpl({ ...base, amount: 14900, kind: 'expense', account_id: 'acc-bank', note: 'Spotify' }),
+    kind: 'subscription', frequency: 'monthly', next_due: '2026-07-20', auto_post: false, remaining_payments: null,
+  });
+  await createRecurringRepo(db).create({
+    id: 'rec-loan',
+    template: tmpl({ ...base, amount: 230000, kind: 'expense', account_id: 'acc-bank', note: 'Gadget loan', total_payments: 24 }),
+    kind: 'loan', frequency: 'monthly', next_due: '2026-07-30', auto_post: false, remaining_payments: 10,
+  });
+  await createRecurringRepo(db).create({
+    id: 'rec-google',
+    template: tmpl({ ...base, amount: 97900, kind: 'expense', account_id: 'acc-bank', note: 'Google One', interval_months: 12 }),
+    kind: 'bill', frequency: 'custom', next_due: '2026-08-10', auto_post: false, remaining_payments: null,
+  });
 }
 
 // One starter preset (§7.3: 50/30/20 is a starter, never a limit). Applying it to the

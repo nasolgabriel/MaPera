@@ -5,9 +5,11 @@ import type { SqlDriver } from '../db/driver';
 import { seed } from '../db/seed';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
+import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
-import { cashFlow, totalBalance, sNet } from '../domain/stats';
-import type { Goal } from '../db/repositories/types';
+import { cashFlow, expenses, totalBalance, sNet } from '../domain/stats';
+import type { Goal, Recurring } from '../db/repositories/types';
+import type { RecurringTemplate } from '../domain/dues';
 import { parsePresetBuckets } from '../domain/split';
 
 // Point the store's getDb() at a fresh in-memory driver per test.
@@ -266,6 +268,97 @@ describe('savings module (B5)', () => {
       to_account_id: 'acc-bank', category_id: null, date: '2026-07-18', note: null,
     });
     expect(store.savingsRateInfo).toMatchObject({ pct: 15, level: 'Gold' }); // 3,000 / 20,000
+  });
+});
+
+describe('recurring engine + dues (B6)', () => {
+  function tmplJson(
+    o: Partial<RecurringTemplate> & Pick<RecurringTemplate, 'amount' | 'kind' | 'account_id'>,
+  ): string {
+    return JSON.stringify({
+      to_account_id: null, category_id: null, note: null, total_payments: null, interval_months: null, ...o,
+    });
+  }
+  async function addRecurring(p: Partial<Recurring> & Pick<Recurring, 'id' | 'template'>): Promise<void> {
+    await createRecurringRepo(dbRef.current!).create({
+      kind: 'subscription', frequency: 'monthly', next_due: '2026-07-15', auto_post: false, remaining_payments: null, ...p,
+    });
+  }
+
+  it('load pulls recurring; dues computeds derive the card figures + next-month projection', async () => {
+    await addRecurring({ id: 'rec-netflix', template: tmplJson({ amount: 54900, kind: 'expense', account_id: 'acc-bank', note: 'Netflix' }), next_due: '2026-07-15' });
+    await addRecurring({ id: 'rec-loan', template: tmplJson({ amount: 230000, kind: 'expense', account_id: 'acc-bank', note: 'Gadget loan', total_payments: 24 }), kind: 'loan', next_due: '2026-07-30', remaining_payments: 10 });
+    await addRecurring({ id: 'rec-google', template: tmplJson({ amount: 97900, kind: 'expense', account_id: 'acc-bank', note: 'Google One', interval_months: 12 }), kind: 'bill', frequency: 'custom', next_due: '2026-08-10' });
+
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    expect(store.recurring).toHaveLength(3);
+    expect(store.duesTotal).toBe(284900); // 54,900 + 230,000 — Google One is August, not July
+    expect(store.dueDates).toEqual(['2026-07-15', '2026-07-30']);
+    const loanRow = store.duesRows.find((r) => r.id === 'rec-loan')!;
+    expect(loanRow.loanTotal).toBe(24);
+    expect(loanRow.loanRemaining).toBe(10); // 24 − 10 = "14 of 24"
+    // Projection adds the annual, with a diff note (§8.5).
+    expect(store.duesNextMonth.total).toBe(382800); // 284,900 + 97,900
+    expect(store.duesNextMonth.reason).toBe('Google One lands in August');
+  });
+
+  it('runRecurring posts an auto_post due once, advances it, and skips asks-first + future dues', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load(); // rows added AFTER load, so load()'s own catch-up sees none
+    await addRecurring({ id: 'rec-auto', template: tmplJson({ amount: 200000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-bank' }), kind: 'transfer', next_due: '2026-07-05', auto_post: true });
+    await addRecurring({ id: 'rec-netflix', template: tmplJson({ amount: 54900, kind: 'expense', account_id: 'acc-bank', note: 'Netflix' }), next_due: '2026-07-15', auto_post: false });
+    await addRecurring({ id: 'rec-future', template: tmplJson({ amount: 9900, kind: 'expense', account_id: 'acc-bank' }), next_due: '2026-09-01', auto_post: true });
+
+    await store.runRecurring('2026-07-20');
+
+    const txns = await createTransactionsRepo(dbRef.current!).list();
+    const posted = txns.filter((t) => t.recurring_id === 'rec-auto');
+    expect(posted).toHaveLength(1); // one cycle only (next roll lands 2026-08-05, past today)
+    expect(posted[0]).toMatchObject({ amount: 200000, kind: 'transfer', to_account_id: 'acc-bank', date: '2026-07-05' });
+    expect(store.recurring.find((r) => r.id === 'rec-auto')!.next_due).toBe('2026-08-05');
+    expect(txns.some((t) => t.recurring_id === 'rec-netflix')).toBe(false); // asks-first left alone
+    expect(txns.some((t) => t.recurring_id === 'rec-future')).toBe(false); // not due yet
+  });
+
+  it('runRecurring catches up missed cycles and stops a loan at its term', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await addRecurring({ id: 'rec-loan', template: tmplJson({ amount: 230000, kind: 'expense', account_id: 'acc-bank', note: 'Gadget loan', total_payments: 24 }), kind: 'loan', next_due: '2026-05-30', auto_post: true, remaining_payments: 2 });
+
+    await store.runRecurring('2027-01-01'); // far future — dates would allow many, the term caps it
+
+    const posted = (await createTransactionsRepo(dbRef.current!).list()).filter((t) => t.recurring_id === 'rec-loan');
+    expect(posted).toHaveLength(2); // exactly remaining_payments, not one per elapsed month
+    const loan = store.recurring.find((r) => r.id === 'rec-loan')!;
+    expect(loan.remaining_payments).toBe(0);
+    expect(loan.next_due).toBe('2026-07-30'); // 05-30 → 06-30 → 07-30
+  });
+
+  it('logDue posts an asks-first due exactly once (E += amount, no double-count) and marks it paid', async () => {
+    await addRecurring({ id: 'rec-netflix', template: tmplJson({ amount: 54900, kind: 'expense', account_id: 'acc-bank', note: 'Netflix' }), next_due: '2026-07-15', auto_post: false });
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    const before = await snapshot();
+    const eBefore = expenses(before.accounts, before.txns, MONTH);
+    expect(store.duesRows.find((r) => r.id === 'rec-netflix')!.paid).toBe(false);
+    expect(store.duesStillDue).toBe(54900);
+
+    await store.logDue('rec-netflix');
+
+    const after = await snapshot();
+    const posted = after.txns.filter((t) => t.recurring_id === 'rec-netflix');
+    expect(posted).toHaveLength(1); // the due hits E exactly once
+    expect(posted[0]).toMatchObject({ amount: 54900, kind: 'expense', date: '2026-07-15' });
+    expect(expenses(after.accounts, after.txns, MONTH)).toBe(eBefore + 54900); // no double-count
+    expect(store.duesRows.find((r) => r.id === 'rec-netflix')!.paid).toBe(true); // linked txn → paid
+    expect(store.duesStillDue).toBe(0);
+    expect(store.recurring.find((r) => r.id === 'rec-netflix')!.next_due).toBe('2026-08-15'); // advanced
   });
 });
 
