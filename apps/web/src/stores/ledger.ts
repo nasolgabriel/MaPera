@@ -6,6 +6,7 @@ import { getDb } from '../db';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
 import { createCategoriesRepo } from '../db/repositories/categoriesRepo';
+import { createGoalsRepo } from '../db/repositories/goalsRepo';
 import { createSplitPresetsRepo } from '../db/repositories/splitPresetsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import {
@@ -15,10 +16,15 @@ import {
   addDays, averagePerDay, dailyCapAverage, daysInMonth, lastSevenDays, monthGrid, spendByDay,
   spendByDayInRange, sumSpend,
 } from '../domain/calendar';
+import {
+  avgContribution, projectedGoalMonth, savingsRate,
+} from '../domain/savings';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
-import { accountBalance, momChange } from '../domain/stats';
+import {
+  accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
+} from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Budget, Category, SplitPreset, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, Goal, SplitPreset, Transaction } from '../db/repositories/types';
 import type { SplitBucket } from '../domain/split';
 
 /** Fields the log sheet supplies; the store fills id + the B10/B6/B11 link columns. */
@@ -50,6 +56,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   const transactions = ref<Transaction[]>([]);
   const budgets = ref<Budget[]>([]);
   const presets = ref<SplitPreset[]>([]);
+  const goals = ref<Goal[]>([]);
   const month = ref(currentMonth()); // §6.1 month switcher moves this
   const loaded = ref(false);
 
@@ -135,12 +142,43 @@ export const useLedgerStore = defineStore('ledger', () => {
   const weekChange = computed(() => momChange(weekTotal.value, previousWeekTotal.value));
   const weekAverage = computed(() => averagePerDay(weekDays.value));
 
+  // ── B5 Savings (§6.3 / §8.2) — all money math via domain/savings + domain/stats ──
+
+  /** Active savings-flagged accounts (§8.1) with their balances, for the C1 rows. */
+  const savingsAccountsView = computed(() =>
+    accounts.value
+      .filter((a) => !a.archived && isSavingsAccount(a))
+      .map((a) => ({ account: a, balance: accountBalances.value.get(a.id) ?? 0 })),
+  );
+  /** total_saved (§8.1) — the saffron hero figure. */
+  const totalSavedAmount = computed(() => totalSaved(accounts.value, transactions.value));
+  /** savings_rate for the real current month (§8.2); null → "—" (invariant 5). Hero uses
+   *  the live month regardless of the Budget-home month switcher — the savings screen has none. */
+  const savingsRateInfo = computed(() =>
+    savingsRate(
+      sNet(accounts.value, transactions.value, currentMonth()),
+      income(accounts.value, transactions.value, currentMonth()),
+    ),
+  );
+  /** avg_contribution over the last 3 income months (§8.2) — feeds every goal projection. */
+  const goalAvgContribution = computed(() =>
+    avgContribution(accounts.value, transactions.value, currentMonth()),
+  );
+  /** projected finish month ('YYYY-MM' | null) per goal (§8.2). */
+  const goalProjections = computed(
+    () =>
+      new Map(
+        goals.value.map((g) => [g.id, projectedGoalMonth(g, goalAvgContribution.value, todayISO())]),
+      ),
+  );
+
   async function load(): Promise<void> {
     const db = await getDb();
     accounts.value = await createAccountsRepo(db).list();
     categories.value = await createCategoriesRepo(db).list();
     budgets.value = await createBudgetsRepo(db).listByMonth(month.value);
     presets.value = await createSplitPresetsRepo(db).list();
+    goals.value = await createGoalsRepo(db).list();
     await refreshTransactions(db);
     loaded.value = true;
   }
@@ -226,6 +264,46 @@ export const useLedgerStore = defineStore('ledger', () => {
     }
   }
 
+  /** §6.3 "+ add" on a goal: move real money into the goal's linked savings account and
+   *  bump its saved_amount. The transfer counts as an S contribution (§7.2) when the source
+   *  is a regular account; a source == linked account is skipped as a self-transfer (invariant 1
+   *  no-op) but the progress still advances. */
+  async function addToGoal(goalId: string, sourceAccountId: string, amountCentavos: number): Promise<void> {
+    const goal = goals.value.find((g) => g.id === goalId);
+    if (!goal || goal.account_id === null || amountCentavos <= 0) return;
+    if (sourceAccountId !== goal.account_id) {
+      await addTransaction({
+        amount: amountCentavos,
+        kind: 'transfer',
+        account_id: sourceAccountId,
+        to_account_id: goal.account_id,
+        category_id: null,
+        date: todayISO(),
+        note: `Goal: ${goal.name}`,
+      });
+    }
+    const db = await getDb();
+    const repo = createGoalsRepo(db);
+    await repo.update({ ...goal, saved_amount: goal.saved_amount + amountCentavos });
+    goals.value = await repo.list();
+  }
+
+  /** §6.3 goal editor: create (id absent) or update (id present). */
+  async function saveGoal(goal: Goal): Promise<void> {
+    const db = await getDb();
+    const repo = createGoalsRepo(db);
+    if (await repo.getById(goal.id)) await repo.update(goal);
+    else await repo.create(goal);
+    goals.value = await repo.list();
+  }
+
+  async function deleteGoal(id: string): Promise<void> {
+    const db = await getDb();
+    const repo = createGoalsRepo(db);
+    await repo.remove(id);
+    goals.value = await repo.list();
+  }
+
   /** §7.3 named presets. Buckets stored as JSON-as-text (parse with parsePresetBuckets). */
   async function savePreset(name: string, buckets: SplitBucket[]): Promise<void> {
     const db = await getDb();
@@ -242,11 +320,13 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   return {
-    accounts, categories, transactions, budgets, presets, month, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, month, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
+    savingsAccountsView, totalSavedAmount, savingsRateInfo, goalAvgContribution, goalProjections,
     load, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
+    addToGoal, saveGoal, deleteGoal,
   };
 });

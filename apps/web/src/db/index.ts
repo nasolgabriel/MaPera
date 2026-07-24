@@ -7,9 +7,10 @@ import { createCapacitorDriver } from './drivers/capacitorDriver';
 import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
+import { createGoalsRepo } from './repositories/goalsRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
-import { seed, seedBudgets, seedDailySpend, seedSplitPresets } from './seed';
+import { seed, seedBudgets, seedDailySpend, seedSavings, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -41,6 +42,10 @@ async function init(): Promise<SqlDriver> {
   // wants it or the calendar heat strip and 7-day graph draw an empty month (E2).
   if ((await createTransactionsRepo(db).getById('txn-daily-01')) === null) {
     await seedDailySpend(db);
+  }
+  // Savings accounts + a goal (B5) — same test-preserving reason: app path only.
+  if ((await createGoalsRepo(db).list()).length === 0) {
+    await seedSavings(db);
   }
   return db;
 }

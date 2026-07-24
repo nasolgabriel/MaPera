@@ -4,8 +4,10 @@ import { createSqlJsDriver } from '../db/drivers/sqljsDriver';
 import type { SqlDriver } from '../db/driver';
 import { seed } from '../db/seed';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
+import { createGoalsRepo } from '../db/repositories/goalsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import { cashFlow, totalBalance, sNet } from '../domain/stats';
+import type { Goal } from '../db/repositories/types';
 import { parsePresetBuckets } from '../domain/split';
 
 // Point the store's getDb() at a fresh in-memory driver per test.
@@ -181,6 +183,89 @@ describe('ledger store (B1)', () => {
     const { accounts, txns } = await snapshot();
     expect(sNet(accounts, txns, MONTH)).toBe(200000); // cash(regular) → bank(savings)
     expect(cashFlow(accounts, txns, MONTH)).toBe(before); // transfer doesn't touch cash flow
+  });
+});
+
+describe('savings module (B5)', () => {
+  function laptopGoal(over: Partial<Goal> = {}): Goal {
+    // Linked to acc-bank (savings-flagged); source money comes from acc-cash (regular).
+    return {
+      id: 'goal-laptop', name: 'Laptop fund', target_amount: 3000000,
+      deadline: null, account_id: 'acc-bank', saved_amount: 1130000, ...over,
+    };
+  }
+
+  it('load() pulls goals', async () => {
+    await createGoalsRepo(dbRef.current!).create(laptopGoal());
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.goals).toHaveLength(1);
+    expect(store.goals[0]).toMatchObject({ id: 'goal-laptop', saved_amount: 1130000 });
+  });
+
+  it('addToGoal writes a regular→savings transfer, bumps saved_amount, keeps invariants 1 & 2', async () => {
+    await createGoalsRepo(dbRef.current!).create(laptopGoal());
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    await store.addToGoal('goal-laptop', 'acc-cash', 500000); // ₱5,000 cash → BPI (linked)
+
+    const goal = store.goals.find((g) => g.id === 'goal-laptop')!;
+    expect(goal.saved_amount).toBe(1630000); // 1,130,000 + 500,000
+    const transfer = store.transactions.find(
+      (t) => t.kind === 'transfer' && t.amount === 500000 && t.to_account_id === 'acc-bank',
+    );
+    expect(transfer).toMatchObject({ account_id: 'acc-cash', note: 'Goal: Laptop fund' });
+
+    const { accounts, txns } = await snapshot();
+    expect(sNet(accounts, txns, MONTH)).toBe(500000); // cash(regular) → bank(savings) = contribution
+    expect(cashFlow(accounts, txns, MONTH)).toBe(totalBalance(accounts, txns)); // invariants 1 + 2
+  });
+
+  it('addToGoal skips a self-transfer when the source is the linked account but still bumps progress', async () => {
+    await createGoalsRepo(dbRef.current!).create(laptopGoal());
+    const store = useLedgerStore();
+    await store.load();
+    const before = store.transactions.length;
+
+    await store.addToGoal('goal-laptop', 'acc-bank', 200000); // source == linked
+
+    expect(store.transactions).toHaveLength(before); // no transfer row
+    expect(store.goals.find((g) => g.id === 'goal-laptop')!.saved_amount).toBe(1330000);
+  });
+
+  it('saveGoal creates then updates, and deleteGoal removes', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.goals).toHaveLength(0);
+
+    await store.saveGoal(laptopGoal());
+    expect(store.goals).toHaveLength(1);
+
+    await store.saveGoal(laptopGoal({ target_amount: 4000000 }));
+    expect(store.goals).toHaveLength(1); // updated in place, not duplicated
+    expect(store.goals[0]!.target_amount).toBe(4000000);
+
+    await store.deleteGoal('goal-laptop');
+    expect(store.goals).toHaveLength(0);
+  });
+
+  it('totalSavedAmount + savingsRateInfo wire domain/savings to the live current month', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    // Seed income (₱20,000) lands directly on acc-bank, not as a transfer → S_net(July)=0.
+    expect(store.savingsRateInfo).toMatchObject({ pct: 0, capped: false, level: 'Bronze' });
+    // total_saved = balance of the savings-flagged acc-bank (§8.1): +20,000 income − 9,000 food.
+    expect(store.totalSavedAmount).toBe(1100000);
+
+    // A regular→savings contribution moves the live-month rate off zero (invariant 4 recompute).
+    await store.addTransaction({
+      amount: 300000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-bank', category_id: null, date: '2026-07-18', note: null,
+    });
+    expect(store.savingsRateInfo).toMatchObject({ pct: 15, level: 'Gold' }); // 3,000 / 20,000
   });
 });
 

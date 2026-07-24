@@ -2,6 +2,7 @@ import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createCategoriesRepo } from './repositories/categoriesRepo';
+import { createGoalsRepo } from './repositories/goalsRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
 import type { SplitBucket } from '../domain/split';
@@ -92,6 +93,50 @@ export async function seedDailySpend(db: SqlDriver): Promise<void> {
       id, amount, kind: 'expense', account_id, to_account_id: null,
       category_id: 'cat-shopping', date, note,
       discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    });
+  }
+}
+
+/**
+ * Dev-only savings data (B5): two extra savings-flagged accounts + one goal, plus a small
+ * regular→savings contribution so the C1 hero shows a live savings rate instead of 0%.
+ *
+ * NOT called from seed(): every domain/repo/store test asserts against the §8.1 totals
+ * (2 accounts, cash_flow 650000, hub gauge 0.9). Only db/index.ts (the app path) adds these,
+ * exactly like seedDailySpend. The goal's saved_amount is an independent progress counter
+ * (bumped by "add to goal", per the §6.3 decision), not derived from an account balance.
+ */
+export async function seedSavings(db: SqlDriver): Promise<void> {
+  const accounts = createAccountsRepo(db);
+  if ((await accounts.getById('acc-maya')) === null) {
+    await accounts.create({
+      id: 'acc-maya', name: 'Maya', type: 'ewallet', starting_balance: 620000, essence_color: '#E8641B',
+      archived: false, credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+  }
+  if ((await accounts.getById('acc-mp2')) === null) {
+    await accounts.create({
+      id: 'acc-mp2', name: 'MP2 Pag-IBIG', type: 'investment', starting_balance: 1200000, essence_color: '#7A3FD0',
+      archived: false, credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+  }
+
+  // A regular→savings contribution (cash → Maya) so S_net(July) > 0 → the hero rate is live.
+  const transactions = createTransactionsRepo(db);
+  if ((await transactions.getById('txn-save-1')) === null) {
+    await transactions.create({
+      id: 'txn-save-1', amount: 200000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-maya',
+      category_id: null, date: '2026-07-04', note: 'Move to savings',
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    });
+  }
+
+  const goals = createGoalsRepo(db);
+  if ((await goals.getById('goal-laptop')) === null) {
+    // target ₱30,000, saved ₱11,400 → 38% ring (matches the C1 wireframe).
+    await goals.create({
+      id: 'goal-laptop', name: 'Laptop fund', target_amount: 3000000,
+      deadline: null, account_id: 'acc-bank', saved_amount: 1140000,
     });
   }
 }

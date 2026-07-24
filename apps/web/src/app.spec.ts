@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createSqlJsDriver } from './db/drivers/sqljsDriver'
 import { seed } from './db/seed'
+import { createGoalsRepo } from './db/repositories/goalsRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
 import { router } from './router'
@@ -61,5 +62,23 @@ describe('app shell', () => {
     await router.push('/caps')
     await flushPromises() // lazy route component import + store.load()
     expect(wrapper.text()).toContain('Budgets ·')
+  })
+
+  it('mounts the savings screen with hero + a goal ring (B5)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    await createGoalsRepo(dbRef.current).create({
+      id: 'goal-laptop', name: 'Laptop fund', target_amount: 3000000,
+      deadline: null, account_id: 'acc-bank', saved_amount: 1140000,
+    })
+    const wrapper = mount(App, {
+      global: { plugins: [createPinia(), router] },
+    })
+    await router.push('/savings')
+    await flushPromises() // lazy route component import + store.load()
+    expect(wrapper.text()).toContain('total saved')
+    expect(wrapper.text()).toContain('Laptop fund')
+    expect(wrapper.find('.ring').exists()).toBe(true) // GoalRing rendered
+    expect(wrapper.text()).toContain('+ New goal')
   })
 })
