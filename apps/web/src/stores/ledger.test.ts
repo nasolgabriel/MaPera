@@ -362,6 +362,74 @@ describe('recurring engine + dues (B6)', () => {
   });
 });
 
+describe('statistics trends (B7)', () => {
+  // Like the dues/banner tests, the trend window ends at the live month, so these assume
+  // "now" is the seed month (July 2026); seed data is July-only, so July is the current point.
+  it('exposes a 6-month window with the live month flagged partial', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.statsMonths).toHaveLength(6);
+    const now = store.statsMonths[5]!;
+    expect(now).toBe(MONTH);
+    const last = store.savingsTrend[5]!;
+    expect(last.month).toBe(MONTH);
+    expect(last.partial).toBe(true); // drawn dashed, excluded from mom_change (§8.7)
+    expect(store.savingsTrend.slice(0, 5).every((p) => !p.partial)).toBe(true);
+  });
+
+  it('expense + savings series recompute after add/delete (invariant 4 — no stale stats)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    const nowExpense = () => store.expenseTrend[5]!.value;
+    const nowSaved = () => store.savingsTrend[5]!.value;
+
+    expect(nowExpense()).toBe(1350000); // July seed E = ₱13,500
+    const savedBefore = nowSaved();
+
+    await store.addTransaction({
+      amount: 25000, kind: 'expense', account_id: 'acc-cash',
+      to_account_id: null, category_id: 'cat-food', date: '2026-07-22', note: null,
+    });
+    expect(nowExpense()).toBe(1375000); // recomputed, not cached
+
+    await store.deleteTransaction('txn-expense-2'); // −₱4,500 transport
+    expect(nowExpense()).toBe(925000); // 1,375,000 − 450,000
+
+    // A regular→savings contribution lifts the cumulative savings point (and only it).
+    await store.addTransaction({
+      amount: 300000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-bank', category_id: null, date: '2026-07-23', note: null,
+    });
+    expect(nowSaved()).toBe(savedBefore + 300000);
+  });
+
+  it('wires the rate + spend-vs-budget cards from domain (§8.2 / §8.4)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    // Seed: Σ spent 13,500 vs Σ cap 15,000 → −10% (under). No prior-month rate → delta null.
+    expect(store.spendVsBudget).toBeCloseTo(-10);
+    expect(store.savingsRateDelta).toBeNull();
+
+    // Completed months are all empty in the seed-only fixture → headline change is "—".
+    expect(store.expenseTrendChange).toBeNull();
+  });
+
+  it('netTrend is free_cash_flow per month and recomputes on edit (invariant 4)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    // July seed: I 20,000 − E 13,500 − S_net 0 = ₱6,500.
+    expect(store.netTrend[5]!.value).toBe(650000);
+
+    const income = store.transactions.find((t) => t.id === 'txn-income-1')!;
+    await store.updateTransaction({ ...income, amount: 2500000 });
+    expect(store.netTrend[5]!.value).toBe(1150000); // 25,000 − 13,500
+  });
+});
+
 describe('budget home calendar + graph wiring (E2)', () => {
   it('monthCells lay out the visible month and recompute after add/delete (invariant 4)', async () => {
     const store = useLedgerStore();

@@ -112,4 +112,25 @@ describe('app shell', () => {
     expect(sheet.text()).toContain('14 of 24') // loan progress
     expect(sheet.text()).toContain('Google One lands in August') // next-month diff note
   })
+
+  // Assumes "now" is the seed month (July 2026), like the dues/banner tests above.
+  it('renders the statistics tabs and charts, and switches tab (B7)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/stats')
+    await flushPromises() // lazy route component import + store.load()
+
+    // Savings tab is first (§6.4): its saved-over-time line + rate card render.
+    expect(wrapper.text()).toContain('Statistics')
+    expect(wrapper.find('.line-chart').exists()).toBe(true) // savings trend line
+    expect(wrapper.text()).toContain('Total saved')
+    expect(wrapper.text()).toContain('Savings rate')
+
+    // Segmented tabs switch the panel to the Net (free cash flow) view.
+    const netTab = wrapper.findAll('.tab').find((b) => b.text() === 'Net')!
+    await netTab.trigger('click')
+    expect(wrapper.text()).toContain('Free cash flow')
+    expect(wrapper.find('.month-bars').exists()).toBe(true)
+  })
 })

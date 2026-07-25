@@ -11,7 +11,7 @@ import { createGoalsRepo } from './repositories/goalsRepo';
 import { createRecurringRepo } from './repositories/recurringRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
-import { seed, seedBudgets, seedDailySpend, seedRecurring, seedSavings, seedSplitPresets } from './seed';
+import { seed, seedBudgets, seedDailySpend, seedHistory, seedRecurring, seedSavings, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -52,6 +52,10 @@ async function init(): Promise<SqlDriver> {
   // §8.1 totals if it ran in tests, so it lives outside seed() like the others.
   if ((await createRecurringRepo(db).list()).length === 0) {
     await seedRecurring(db);
+  }
+  // Monthly history (B7) so the §6.4 trend charts have shape — app path only, same reason.
+  if ((await createTransactionsRepo(db).getById('txn-h-2026-02-inc')) === null) {
+    await seedHistory(db);
   }
   return db;
 }

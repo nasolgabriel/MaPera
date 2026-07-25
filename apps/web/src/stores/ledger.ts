@@ -11,8 +11,12 @@ import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createSplitPresetsRepo } from '../db/repositories/splitPresetsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import {
-  budgetConsumed, budgetRemaining, budgetUsed, categorySpent, dailySafeSpend, spentByCategory, totalCap,
+  budgetConsumed, budgetRemaining, budgetUsed, categorySpent, dailySafeSpend, spentByCategory, totalCap, vsBudget,
 } from '../domain/budgets';
+import {
+  expenseSeries, monthKeys, netSeries, savingsComparison, savingsSeries,
+} from '../domain/statistics';
+import type { SeriesPoint } from '../domain/statistics';
 import {
   dueNextMonth, dueThisMonth, duesTotal as sumDueRows, nextDueAfter, parseRecurringTemplate,
   stillDue as sumUnpaid,
@@ -64,6 +68,14 @@ function advanceRecurring(r: Recurring, tmpl: RecurringTemplate): Recurring {
 }
 
 const RECENTS_LIMIT = 5; // §6.1 recents = last 5 transactions
+const STATS_WINDOW = 6; // §6.4 trend charts show a rolling 6-month window
+
+/** mom_change of the last two COMPLETED months (§8.7 excludes the partial live month). */
+function completedChange(points: SeriesPoint[]): number | null {
+  const done = points.filter((p) => !p.partial).map((p) => p.value);
+  if (done.length < 2) return null;
+  return momChange(done[done.length - 1]!, done[done.length - 2]!);
+}
 
 function currentMonth(): string {
   return todayISO().slice(0, 7);
@@ -223,6 +235,49 @@ export const useLedgerStore = defineStore('ledger', () => {
     }
     return map;
   });
+
+  // ── B7 Statistics (§6.4 / §8.7) — every series re-derived from raw txns via domain/statistics ──
+
+  /** The rolling 6-month window ending at the live month (§6.4). */
+  const statsMonths = computed(() => monthKeys(currentMonth(), STATS_WINDOW));
+  /** Cumulative total_saved per month — the Savings-tab hero line (§6.4). */
+  const savingsTrend = computed(() =>
+    savingsSeries(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+  );
+  /** Dashed comparison for the savings line (rolling avg, or year-ago once 13+ months — math-doc §5). */
+  const savingsTrendComparison = computed(() =>
+    savingsComparison(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+  );
+  /** E(t) per month — spend-by-month bars (§6.4). */
+  const expenseTrend = computed(() =>
+    expenseSeries(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+  );
+  /** free_cash_flow(t) per month — the Net tab (§6.4), may be negative. */
+  const netTrend = computed(() =>
+    netSeries(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+  );
+  /** Chart headline changes — completed months only (partial live month excluded, §8.7). */
+  const savingsTrendChange = computed(() => completedChange(savingsTrend.value));
+  const expenseTrendChange = computed(() => completedChange(expenseTrend.value));
+  const netTrendChange = computed(() => completedChange(netTrend.value));
+
+  /** savings_rate last month (§8.2) — the rate card's ▲/▼-vs-last-month baseline (§7.4). */
+  const savingsRatePrev = computed(() => {
+    const prev = monthKeys(currentMonth(), 2)[0]!;
+    return savingsRate(
+      sNet(accounts.value, transactions.value, prev),
+      income(accounts.value, transactions.value, prev),
+    );
+  });
+  /** Rate change vs last month (§7.4) — null when either month has no rate (invariant 5). */
+  const savingsRateDelta = computed(() => {
+    const cur = savingsRateInfo.value;
+    const prev = savingsRatePrev.value;
+    if (cur === null || prev === null) return null;
+    return momChange(cur.pct, prev.pct);
+  });
+  /** vs_budget(t) for the loaded month (§8.4) — the spend-vs-budget card; null with no caps. */
+  const spendVsBudget = computed(() => vsBudget(accounts.value, transactions.value, budgets.value, month.value));
 
   async function load(): Promise<void> {
     const db = await getDb();
@@ -434,6 +489,8 @@ export const useLedgerStore = defineStore('ledger', () => {
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
     savingsAccountsView, totalSavedAmount, savingsRateInfo, goalAvgContribution, goalProjections,
     duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
+    statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
+    savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,
     load, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
     addToGoal, saveGoal, deleteGoal, runRecurring, logDue,

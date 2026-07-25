@@ -8,6 +8,7 @@ import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
 import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
+import type { Transaction } from './repositories/types';
 
 export async function seed(db: SqlDriver): Promise<void> {
   const accounts = createAccountsRepo(db);
@@ -183,6 +184,43 @@ export async function seedRecurring(db: SqlDriver): Promise<void> {
     template: tmpl({ ...base, amount: 97900, kind: 'expense', account_id: 'acc-bank', note: 'Google One', interval_months: 12 }),
     kind: 'bill', frequency: 'custom', next_due: '2026-08-10', auto_post: false, remaining_payments: null,
   });
+}
+
+/**
+ * Dev-only monthly history (B7): income + a savings contribution + a couple of expenses for
+ * 2026-02 … 2026-06, so the §6.4 trend charts (6-month window) have real month-over-month
+ * shape instead of one lone July column. Contributions rise across the months, so the savings
+ * line grows and the savings-rate trend reads as improving.
+ *
+ * NOT called from seed(): every domain/repo/store test asserts against the §8.1 July totals,
+ * and these rows would shift total_saved / S_net for the earlier months. App path only, exactly
+ * like seedDailySpend/seedSavings/seedRecurring. Rows touch only the base-seed accounts
+ * (acc-cash regular → acc-bank savings + acc-cash/acc-bank expenses), so they don't depend on
+ * the seedSavings accounts and never land in July (the documented donut/dues month is untouched).
+ */
+export async function seedHistory(db: SqlDriver): Promise<void> {
+  const transactions = createTransactionsRepo(db);
+  const months: Array<{ m: string; save: number; food: number; transport: number }> = [
+    { m: '2026-02', save: 150000, food: 700000, transport: 500000 },
+    { m: '2026-03', save: 200000, food: 820000, transport: 560000 },
+    { m: '2026-04', save: 180000, food: 640000, transport: 470000 },
+    { m: '2026-05', save: 250000, food: 900000, transport: 700000 },
+    { m: '2026-06', save: 300000, food: 720000, transport: 540000 },
+  ];
+  for (const { m, save, food, transport } of months) {
+    const rows: Array<[string, number, Transaction['kind'], string, string | null, string | null, string]> = [
+      [`txn-h-${m}-inc`, 2000000, 'income', 'acc-bank', null, 'cat-salary', `${m}-01`],
+      [`txn-h-${m}-sav`, save, 'transfer', 'acc-cash', 'acc-bank', null, `${m}-05`],
+      [`txn-h-${m}-food`, food, 'expense', 'acc-bank', null, 'cat-food', `${m}-10`],
+      [`txn-h-${m}-trn`, transport, 'expense', 'acc-cash', null, 'cat-transport', `${m}-12`],
+    ];
+    for (const [id, amount, kind, account_id, to_account_id, category_id, date] of rows) {
+      await transactions.create({
+        id, amount, kind, account_id, to_account_id, category_id, date, note: null,
+        discount_rule_id: null, recurring_id: null, saved_item_id: null,
+      });
+    }
+  }
 }
 
 // One starter preset (§7.3: 50/30/20 is a starter, never a limit). Applying it to the
