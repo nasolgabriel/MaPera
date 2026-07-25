@@ -127,6 +127,13 @@ describe('app shell', () => {
     expect(wrapper.text()).toContain('Total saved')
     expect(wrapper.text()).toContain('Savings rate')
 
+    // E3: the savings line is a keyboard slider — Arrow selects a month and shows a tooltip.
+    const linePlot = wrapper.find('.line-chart .plot')
+    expect(linePlot.attributes('role')).toBe('slider')
+    await linePlot.trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.find('.line-chart .tooltip').exists()).toBe(true)
+    expect(wrapper.find('.line-chart .tooltip').text()).toContain('2026')
+
     // Segmented tabs switch the panel to the Net (free cash flow) view.
     const netTab = wrapper.findAll('.tab').find((b) => b.text() === 'Net')!
     await netTab.trigger('click')

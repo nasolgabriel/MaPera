@@ -4,6 +4,8 @@
 // math is done in domain/statistics + the store, per §4). The live partial month is
 // drawn as a dashed segment with a hollow dot and is excluded from the headline change.
 import { computed } from 'vue';
+import { useChartScrub } from '../composables/useChartScrub';
+import ChartTooltip from './ChartTooltip.vue';
 import type { SeriesPoint } from '../domain/statistics';
 
 const props = defineProps<{
@@ -73,6 +75,32 @@ const changeLabel = computed(() => {
   if (rounded === 0) return 'flat vs last month';
   return `${rounded < 0 ? '▼' : '▲'} ${Math.abs(rounded)}% vs last month`;
 });
+
+// ── E3 scrub + tooltip ──
+const scrub = useChartScrub(() => props.points.length);
+
+function pesoWhole(centavos: number): string {
+  const sign = centavos < 0 ? '−' : '';
+  return `${sign}₱ ${Math.round(Math.abs(centavos) / 100).toLocaleString('en-PH')}`;
+}
+function monthYear(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y!, m! - 1, 1).toLocaleDateString('en-PH', { month: 'short', year: 'numeric' });
+}
+
+/** The selected point in both viewBox coords (marker/dot) and % (tooltip), or null. */
+const selected = computed(() => {
+  const i = scrub.selected.value;
+  if (i === null) return null;
+  const p = props.points[i];
+  const d = dots.value[i];
+  if (!p || !d) return null;
+  return { month: p.month, value: p.value, dx: d.x, dy: d.y, xPct: (d.x / W) * 100, yPct: (d.y / H) * 100 };
+});
+const tooltipText = computed(() =>
+  selected.value ? `${monthYear(selected.value.month)} · ${pesoWhole(selected.value.value)}` : '',
+);
+const ariaText = computed(() => tooltipText.value || props.label);
 </script>
 
 <template>
@@ -84,20 +112,48 @@ const changeLabel = computed(() => {
       </span>
     </div>
 
-    <svg class="plot" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="none" role="img" :aria-label="label">
-      <path v-if="comparisonPath" class="cmp" :d="comparisonPath" />
-      <path v-if="solidPath" class="main" :d="solidPath" />
-      <path v-if="partialPath" class="main partial" :d="partialPath" />
-      <circle
-        v-for="(d, i) in dots"
-        :key="i"
-        :cx="d.x"
-        :cy="d.y"
-        :r="d.partial ? 3 : 2.4"
-        class="dot"
-        :class="{ hollow: d.partial }"
-      />
-    </svg>
+    <div class="host">
+      <svg
+        class="plot"
+        :viewBox="`0 0 ${W} ${H}`"
+        preserveAspectRatio="none"
+        role="slider"
+        tabindex="0"
+        :aria-label="label"
+        :aria-valuemin="0"
+        :aria-valuemax="Math.max(0, points.length - 1)"
+        :aria-valuenow="scrub.valueNow.value"
+        :aria-valuetext="ariaText"
+        @pointerdown="scrub.onPointerDown"
+        @pointermove="scrub.onPointerMove"
+        @pointerup="scrub.onPointerUp"
+        @pointercancel="scrub.onPointerUp"
+        @keydown="scrub.onKeydown"
+      >
+        <line v-if="selected" class="marker" :x1="selected.dx" :x2="selected.dx" :y1="PAD_T" :y2="H - PAD_B" />
+        <path v-if="comparisonPath" class="cmp" :d="comparisonPath" />
+        <path v-if="solidPath" class="main" :d="solidPath" />
+        <path v-if="partialPath" class="main partial" :d="partialPath" />
+        <circle
+          v-for="(d, i) in dots"
+          :key="i"
+          :cx="d.x"
+          :cy="d.y"
+          :r="d.partial ? 3 : 2.4"
+          class="dot"
+          :class="{ hollow: d.partial }"
+        />
+        <circle v-if="selected" class="sel" :cx="selected.dx" :cy="selected.dy" r="4" />
+      </svg>
+
+      <ChartTooltip
+        :visible="selected !== null"
+        :x-pct="selected?.xPct ?? 0"
+        :y-pct="selected?.yPct ?? 0"
+      >
+        {{ tooltipText }}
+      </ChartTooltip>
+    </div>
 
     <div class="axis">
       <span v-for="p in points" :key="p.month" class="mono" :class="{ now: p.partial }">{{ monthShort(p.month) }}</span>
@@ -135,11 +191,34 @@ const changeLabel = computed(() => {
 .change.down {
   color: #b3282d;
 }
+.host {
+  position: relative;
+  margin-top: 8px;
+}
 .plot {
   width: 100%;
   height: 92px;
-  margin-top: 8px;
   overflow: visible;
+  touch-action: none; /* let the scrub own horizontal drag, not the page scroll */
+  cursor: pointer;
+  border-radius: 6px;
+  outline: none;
+}
+.plot:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+.marker {
+  stroke: var(--color-primary);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+.sel {
+  fill: var(--color-surface);
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 .cmp {
   fill: none;
