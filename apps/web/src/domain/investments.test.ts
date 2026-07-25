@@ -25,7 +25,6 @@ function txn(p: Partial<Transaction> & Pick<Transaction, 'id' | 'amount' | 'kind
 }
 
 const mp2 = acc('mp2', 'investment', 1200000); // opening cost basis ₱12,000
-const cash = acc('cash', 'cash');
 // July: a ₱2,000 contribution (cash → mp2) and a ₱500 withdrawal (mp2 → cash).
 const july = [
   txn({ id: 'c1', amount: 200000, kind: 'transfer', account_id: 'cash', to_account_id: 'mp2', date: '2026-07-06' }),
