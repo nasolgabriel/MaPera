@@ -3,7 +3,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createSqlJsDriver } from './db/drivers/sqljsDriver'
 import { seed } from './db/seed'
+import { createAccountsRepo } from './db/repositories/accountsRepo'
 import { createGoalsRepo } from './db/repositories/goalsRepo'
+import { createInvestmentValuesRepo } from './db/repositories/investmentValuesRepo'
 import { createRecurringRepo } from './db/repositories/recurringRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
@@ -81,6 +83,28 @@ describe('app shell', () => {
     expect(wrapper.text()).toContain('Laptop fund')
     expect(wrapper.find('.ring').exists()).toBe(true) // GoalRing rendered
     expect(wrapper.text()).toContain('+ New goal')
+  })
+
+  it('renders investment returns + a log-value control on the savings screen (B8)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    await createAccountsRepo(dbRef.current).create({
+      id: 'acc-mp2', name: 'MP2 Pag-IBIG', type: 'investment', starting_balance: 1200000, essence_color: '#7A3FD0',
+      archived: false, credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    })
+    await createInvestmentValuesRepo(dbRef.current).create({ id: 'iv-07', account_id: 'acc-mp2', month: '2026-07', value: 1320000 })
+
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/savings')
+    await flushPromises() // lazy route component import + store.load()
+
+    expect(wrapper.text()).toContain('MP2 Pag-IBIG')
+    const invest = wrapper.find('.invest')
+    expect(invest.exists()).toBe(true)
+    expect(invest.text()).toContain('market') // §8.3 returns strip rendered
+    const logBtn = wrapper.find('.log-value')
+    expect(logBtn.exists()).toBe(true)
+    expect(logBtn.text()).toContain('update value') // a value is already logged
   })
 
   // Like the month-banner test above, this assumes "now" is the seed month (July 2026).

@@ -85,3 +85,12 @@ export interface SavingPeriod {
   rate: number | null;
   streak_counted: boolean;
 }
+
+export interface InvestmentValue {
+  id: string;
+  account_id: string;
+  /** Month the market value was logged for, 'YYYY-MM'. One snapshot per account per month. */
+  month: string;
+  /** The account's market value at that month, integer centavos (§7.7). */
+  value: number;
+}

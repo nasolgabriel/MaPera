@@ -7,6 +7,7 @@ import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
 import { createCategoriesRepo } from '../db/repositories/categoriesRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
+import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesRepo';
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createSplitPresetsRepo } from '../db/repositories/splitPresetsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
@@ -28,12 +29,15 @@ import {
 import {
   avgContribution, projectedGoalMonth, savingsRate,
 } from '../domain/savings';
+import {
+  investmentReturns, periodGrowth, returnPct,
+} from '../domain/investments';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
 import {
   accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
 } from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Budget, Category, Goal, Recurring, SplitPreset, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, Goal, InvestmentValue, Recurring, SplitPreset, Transaction } from '../db/repositories/types';
 import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
 
@@ -81,6 +85,13 @@ function currentMonth(): string {
   return todayISO().slice(0, 7);
 }
 
+/** 'YYYY-MM' key `delta` months from `month` (delta may be negative). */
+function shiftMonthKey(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y!, m! - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** Local calendar day as ISO 'YYYY-MM-DD' (toISOString would shift by the UTC offset). */
 function todayISO(): string {
   const d = new Date();
@@ -95,6 +106,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   const presets = ref<SplitPreset[]>([]);
   const goals = ref<Goal[]>([]);
   const recurring = ref<Recurring[]>([]); // §7.3/§7.5 auto-transfers + dues
+  const investmentValues = ref<InvestmentValue[]>([]); // §7.7 logged market-value snapshots
   const month = ref(currentMonth()); // §6.1 month switcher moves this
   const loaded = ref(false);
 
@@ -210,6 +222,37 @@ export const useLedgerStore = defineStore('ledger', () => {
       ),
   );
 
+  // ── B8 Investments (§6.3 rows / §7.7 / §8.3) — all return math via domain/investments ──
+
+  /** Active investment accounts with §8.3 figures. balance = book/cost value (§8.1, feeds the
+   *  total_saved hero); marketValue is the latest logged snapshot (§7.7), null until one exists.
+   *  period_growth compares the latest snapshot's month against the calendar month before it,
+   *  netting out that month's contributions so a deposit is never counted as gain (invariant 10). */
+  const investmentsView = computed(() =>
+    accounts.value
+      .filter((a) => !a.archived && a.type === 'investment')
+      .map((a) => {
+        const snaps = investmentValues.value.filter((v) => v.account_id === a.id);
+        const latest = snaps.reduce<InvestmentValue | null>(
+          (best, v) => (best === null || v.month > best.month ? v : best),
+          null,
+        );
+        const marketValue = latest?.value ?? null;
+        const prev = latest ? snaps.find((v) => v.month === shiftMonthKey(latest.month, -1)) ?? null : null;
+        return {
+          account: a,
+          balance: accountBalances.value.get(a.id) ?? 0,
+          marketValue,
+          valueMonth: latest?.month ?? null,
+          returns: investmentReturns(a, transactions.value, marketValue),
+          returnPct: returnPct(a, transactions.value, marketValue),
+          periodGrowth: latest
+            ? periodGrowth(a, transactions.value, marketValue, prev?.value ?? null, latest.month)
+            : null,
+        };
+      }),
+  );
+
   // ── B6 Recurring + dues (§7.5 / §8.5) — all money math via domain/dues ──
 
   /** Dues scheduled in the visible month (§8.5), paid flag from linked transactions. */
@@ -287,6 +330,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     presets.value = await createSplitPresetsRepo(db).list();
     goals.value = await createGoalsRepo(db).list();
     recurring.value = await createRecurringRepo(db).list();
+    investmentValues.value = await createInvestmentValuesRepo(db).list();
     await refreshTransactions(db);
     await runRecurring(); // §7.3 catch-up: post any auto-transfers/dues that came due while away
     loaded.value = true;
@@ -414,6 +458,27 @@ export const useLedgerStore = defineStore('ledger', () => {
     goals.value = await repo.list();
   }
 
+  /** §7.7 "log current value": record an investment account's market value for a month.
+   *  One snapshot per account per month — a re-log for the same month overwrites (no dupes).
+   *  Money entry only; the returns/growth math lives in domain/investments (invariantsView). */
+  async function logInvestmentValue(
+    accountId: string,
+    valueCentavos: number,
+    valueMonth = currentMonth(),
+  ): Promise<void> {
+    const db = await getDb();
+    const repo = createInvestmentValuesRepo(db);
+    const existing = (await repo.list()).find(
+      (v) => v.account_id === accountId && v.month === valueMonth,
+    );
+    if (existing) {
+      await repo.update({ ...existing, value: valueCentavos });
+    } else {
+      await repo.create({ id: crypto.randomUUID(), account_id: accountId, month: valueMonth, value: valueCentavos });
+    }
+    investmentValues.value = await repo.list();
+  }
+
   /** §7.3 named presets. Buckets stored as JSON-as-text (parse with parsePresetBuckets). */
   async function savePreset(name: string, buckets: SplitBucket[]): Promise<void> {
     const db = await getDb();
@@ -483,16 +548,17 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   return {
-    accounts, categories, transactions, budgets, presets, goals, recurring, month, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, month, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
     savingsAccountsView, totalSavedAmount, savingsRateInfo, goalAvgContribution, goalProjections,
+    investmentsView,
     duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
     statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
     savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,
     load, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
-    addToGoal, saveGoal, deleteGoal, runRecurring, logDue,
+    addToGoal, saveGoal, deleteGoal, logInvestmentValue, runRecurring, logDue,
   };
 });

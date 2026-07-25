@@ -88,4 +88,11 @@ CREATE TABLE IF NOT EXISTS split_presets (
   name TEXT NOT NULL,
   buckets TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS investment_values (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  month TEXT NOT NULL,
+  value INTEGER NOT NULL
+);
 `;

@@ -5,6 +5,7 @@ import type { SqlDriver } from '../db/driver';
 import { seed } from '../db/seed';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
+import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesRepo';
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import { cashFlow, expenses, totalBalance, sNet } from '../domain/stats';
@@ -427,6 +428,70 @@ describe('statistics trends (B7)', () => {
     const income = store.transactions.find((t) => t.id === 'txn-income-1')!;
     await store.updateTransaction({ ...income, amount: 2500000 });
     expect(store.netTrend[5]!.value).toBe(1150000); // 25,000 − 13,500
+  });
+});
+
+describe('investments (B8)', () => {
+  async function addInvestmentAccount(): Promise<void> {
+    await createAccountsRepo(dbRef.current!).create({
+      id: 'acc-mp2', name: 'MP2', type: 'investment', starting_balance: 1200000, essence_color: '#7A3FD0',
+      archived: false, credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+  }
+
+  it('load pulls values; investmentsView computes §8.3 returns + period growth', async () => {
+    await addInvestmentAccount();
+    const iv = createInvestmentValuesRepo(dbRef.current!);
+    await iv.create({ id: 'iv-06', account_id: 'acc-mp2', month: '2026-06', value: 1290000 });
+    await iv.create({ id: 'iv-07', account_id: 'acc-mp2', month: '2026-07', value: 1320000 });
+
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    expect(store.investmentValues).toHaveLength(2);
+    const view = store.investmentsView.find((i) => i.account.id === 'acc-mp2')!;
+    expect(view.marketValue).toBe(1320000); // latest snapshot
+    expect(view.returns).toBe(120000); // 1,320,000 − 1,200,000 basis (opening balance)
+    expect(view.returnPct).toBeCloseTo(10); // 120,000 / 1,200,000
+    expect(view.periodGrowth).toBe(30000); // 1,320,000 − 1,290,000 − 0 contributions
+  });
+
+  it('nets a deposit out of period growth — deposits ≠ gains (invariant 10)', async () => {
+    await addInvestmentAccount();
+    const iv = createInvestmentValuesRepo(dbRef.current!);
+    await iv.create({ id: 'iv-06', account_id: 'acc-mp2', month: '2026-06', value: 1000000 });
+    await iv.create({ id: 'iv-07', account_id: 'acc-mp2', month: '2026-07', value: 1520000 });
+
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    await store.addTransaction({
+      amount: 200000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-mp2', category_id: null, date: '2026-07-06', note: null,
+    });
+
+    const view = store.investmentsView.find((i) => i.account.id === 'acc-mp2')!;
+    // Raw value delta is 520,000, but 200,000 of it was fresh capital → real gain 320,000.
+    expect(view.periodGrowth).toBe(320000);
+    // The deposit joins the cost basis: 1,200,000 + 200,000 = 1,400,000.
+    expect(view.returns).toBe(120000); // 1,520,000 − 1,400,000
+  });
+
+  it('logInvestmentValue upserts one snapshot per account per month', async () => {
+    await addInvestmentAccount();
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.investmentsView.find((i) => i.account.id === 'acc-mp2')!.marketValue).toBeNull();
+
+    await store.logInvestmentValue('acc-mp2', 1300000, MONTH);
+    expect(store.investmentValues).toHaveLength(1);
+    expect(store.investmentsView.find((i) => i.account.id === 'acc-mp2')!.marketValue).toBe(1300000);
+
+    await store.logInvestmentValue('acc-mp2', 1310000, MONTH); // same month → overwrite, no dupe
+    expect(store.investmentValues).toHaveLength(1);
+    expect(store.investmentsView.find((i) => i.account.id === 'acc-mp2')!.marketValue).toBe(1310000);
   });
 });
 

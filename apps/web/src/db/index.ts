@@ -8,10 +8,11 @@ import type { SqlDriver } from './driver';
 import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createGoalsRepo } from './repositories/goalsRepo';
+import { createInvestmentValuesRepo } from './repositories/investmentValuesRepo';
 import { createRecurringRepo } from './repositories/recurringRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
-import { seed, seedBudgets, seedDailySpend, seedHistory, seedRecurring, seedSavings, seedSplitPresets } from './seed';
+import { seed, seedBudgets, seedDailySpend, seedHistory, seedInvestments, seedRecurring, seedSavings, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -47,6 +48,11 @@ async function init(): Promise<SqlDriver> {
   // Savings accounts + a goal (B5) — same test-preserving reason: app path only.
   if ((await createGoalsRepo(db).list()).length === 0) {
     await seedSavings(db);
+  }
+  // Investment value snapshots (B8) so the §6.3 MP2 row shows returns — app path only, runs
+  // after seedSavings creates acc-mp2. Self-guards on the account + existing snapshots.
+  if ((await createInvestmentValuesRepo(db).list()).length === 0) {
+    await seedInvestments(db);
   }
   // Recurring auto-transfers + dues (B6) — app path only; the auto-transfer would perturb
   // §8.1 totals if it ran in tests, so it lives outside seed() like the others.

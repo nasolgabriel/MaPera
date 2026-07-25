@@ -3,6 +3,7 @@ import { createAccountsRepo } from './repositories/accountsRepo';
 import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createCategoriesRepo } from './repositories/categoriesRepo';
 import { createGoalsRepo } from './repositories/goalsRepo';
+import { createInvestmentValuesRepo } from './repositories/investmentValuesRepo';
 import { createRecurringRepo } from './repositories/recurringRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
@@ -220,6 +221,35 @@ export async function seedHistory(db: SqlDriver): Promise<void> {
         discount_rule_id: null, recurring_id: null, saved_item_id: null,
       });
     }
+  }
+}
+
+/**
+ * Dev-only investment value history (B8): three monthly market-value snapshots for the
+ * seeded MP2 account (from seedSavings) so the §6.3 investment row shows real returns and a
+ * per-month growth figure. MP2 opens at ₱12,000 (starting_balance, its cost basis) with no
+ * transfers, so: returns = 13,200 − 12,000 = +₱1,200 (+10%), and period_growth(July) =
+ * 13,200 − 12,900 − 0 = +₱300 real gain.
+ *
+ * NOT called from seed(): value snapshots live in their own table (untouched by §8 money math),
+ * but this is app-path-only for the same consistency reason as seedSavings/seedRecurring — it
+ * depends on seedSavings' acc-mp2 and only shapes dev data. Guarded on acc-mp2 existing +
+ * no snapshots yet, exactly like the other top-ups.
+ */
+export async function seedInvestments(db: SqlDriver): Promise<void> {
+  const accounts = createAccountsRepo(db);
+  if ((await accounts.getById('acc-mp2')) === null) return; // needs seedSavings' MP2 account
+
+  const repo = createInvestmentValuesRepo(db);
+  if ((await repo.list()).length > 0) return;
+
+  const snapshots: Array<[string, string, number]> = [
+    ['iv-mp2-05', '2026-05', 1230000],
+    ['iv-mp2-06', '2026-06', 1290000],
+    ['iv-mp2-07', '2026-07', 1320000],
+  ];
+  for (const [id, month, value] of snapshots) {
+    await repo.create({ id, account_id: 'acc-mp2', month, value });
   }
 }
 

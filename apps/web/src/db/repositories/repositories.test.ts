@@ -10,6 +10,7 @@ import { createRecurringRepo } from './recurringRepo';
 import { createSavedItemsRepo } from './savedItemsRepo';
 import { createSavingPeriodsRepo } from './savingPeriodsRepo';
 import { createSplitPresetsRepo } from './splitPresetsRepo';
+import { createInvestmentValuesRepo } from './investmentValuesRepo';
 import { seed } from '../seed';
 
 let db: SqlDriver;
@@ -167,6 +168,24 @@ describe('splitPresetsRepo', () => {
     expect(await repo.list()).toHaveLength(1);
     await repo.remove('p1');
     expect(await repo.getById('p1')).toBeNull();
+  });
+});
+
+describe('investmentValuesRepo', () => {
+  it('round-trips create/get/update/delete', async () => {
+    const accounts = createAccountsRepo(db);
+    await accounts.create({
+      id: 'a1', name: 'MP2', type: 'investment', starting_balance: 1200000, essence_color: '#7A3FD0',
+      archived: false, credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+    const repo = createInvestmentValuesRepo(db);
+    await repo.create({ id: 'iv1', account_id: 'a1', month: '2026-07', value: 1320000 });
+    expect(await repo.getById('iv1')).toMatchObject({ account_id: 'a1', month: '2026-07', value: 1320000 });
+    await repo.update({ id: 'iv1', account_id: 'a1', month: '2026-07', value: 1350000 });
+    expect(await repo.getById('iv1')).toMatchObject({ value: 1350000 });
+    expect(await repo.list()).toHaveLength(1);
+    await repo.remove('iv1');
+    expect(await repo.getById('iv1')).toBeNull();
   });
 });
 

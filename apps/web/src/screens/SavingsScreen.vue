@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // §6.3 Savings home (C1 wireframe): dark hero (total saved + this-month rate/level),
 // savings-account rows, goals (ring + ₱-to-go + projected date + add).
-// Streak/milestone = B12, auto-transfer badge = B6, investment value = B8 (all deferred).
+// Investment rows (B8) add market value + returns + a "log value" control; streak/milestone = B12.
 // All money numbers come from the store's domain-wired computeds; the two domain helpers
 // imported here are pure lookups, not math done in the .vue (§4).
 import { computed, onMounted, ref } from 'vue';
@@ -9,6 +9,7 @@ import { useLedgerStore } from '../stores/ledger';
 import GoalRing from '../components/GoalRing.vue';
 import AddToGoalSheet from '../components/AddToGoalSheet.vue';
 import GoalEditorSheet from '../components/GoalEditorSheet.vue';
+import InvestmentValueSheet from '../components/InvestmentValueSheet.vue';
 import { goalFraction, goalToGo } from '../domain/savings';
 import type { Account, Goal } from '../db/repositories/types';
 
@@ -50,6 +51,27 @@ function autoBadge(accountId: string): string | null {
   return `auto ₱${(t.amount / 100).toLocaleString('en-PH', { maximumFractionDigits: 0 })} / ${ordinal(t.dueDay)}`;
 }
 
+// ── B8 investment rows (§8.3 figures come pre-computed from the store; formatting only here) ──
+type InvestView = (typeof store)['investmentsView'][number];
+/** Investment §8.3 figures keyed by account id, for the row lookup. */
+const investByAccount = computed(() => new Map(store.investmentsView.map((i) => [i.account.id, i])));
+
+/** `▲ ₱1,200 · 10%` return label with a good/bad tone, or null before any value is logged. */
+function returnsLabel(inv: InvestView): { text: string; tone: 'good' | 'bad' } | null {
+  if (inv.returns === null) return null;
+  const up = inv.returns >= 0;
+  const pct = inv.returnPct;
+  const pctText = pct === null ? '' : ` · ${pct.toFixed(pct % 1 === 0 ? 0 : 1)}%`;
+  return { text: `${up ? '▲' : '▼'} ${pesoWhole(Math.abs(inv.returns))}${pctText}`, tone: up ? 'good' : 'bad' };
+}
+
+/** `+₱300 real gain this month` (period_growth, deposits netted out — invariant 10), or null. */
+function growthLabel(inv: InvestView): string | null {
+  if (inv.periodGrowth === null) return null;
+  const sign = inv.periodGrowth >= 0 ? '+' : '−';
+  return `${sign}${pesoWhole(Math.abs(inv.periodGrowth))} this month`;
+}
+
 const liveMonthLabel = new Date().toLocaleDateString('en-PH', { month: 'long' });
 
 /** `15% · Gold` for the hero, or a nudge when there's no rate to show (invariant 5). */
@@ -64,6 +86,15 @@ const rateLine = computed(() => {
 const addingTo = ref<Goal | null>(null);
 const editing = ref<Goal | null>(null);
 const creating = ref(false);
+const valuing = ref<Account | null>(null); // investment whose value is being logged (B8)
+
+function openValue(account: Account): void {
+  valuing.value = account;
+}
+async function onValueConfirm(value: number): Promise<void> {
+  if (valuing.value) await store.logInvestmentValue(valuing.value.id, value);
+  valuing.value = null;
+}
 
 function openAdd(goal: Goal): void {
   addingTo.value = goal;
@@ -106,7 +137,7 @@ onMounted(async () => {
       </span>
     </section>
 
-    <!-- Savings-flagged accounts. Auto-transfer badge (B6) + investment value (B8) not shown yet. -->
+    <!-- Savings-flagged accounts. Investment rows carry §8.3 returns + a "log value" control (B8). -->
     <ul class="accounts">
       <li
         v-for="row in store.savingsAccountsView"
@@ -114,14 +145,35 @@ onMounted(async () => {
         class="acct"
         :style="{ borderLeftColor: row.account.essence_color }"
       >
-        <div class="acct-info">
-          <div class="acct-name">{{ row.account.name }}</div>
-          <div class="acct-type mono">
-            {{ TYPE_LABEL[row.account.type] }}<template v-if="autoBadge(row.account.id)"> · <span class="auto-badge">{{ autoBadge(row.account.id) }}</span></template>
+        <div class="acct-top">
+          <div class="acct-info">
+            <div class="acct-name">{{ row.account.name }}</div>
+            <div class="acct-type mono">
+              {{ TYPE_LABEL[row.account.type] }}<template v-if="autoBadge(row.account.id)"> · <span class="auto-badge">{{ autoBadge(row.account.id) }}</span></template>
+            </div>
+          </div>
+          <div class="acct-balance" :style="{ color: row.account.essence_color }">
+            {{ balanceText(row.balance) }}
           </div>
         </div>
-        <div class="acct-balance" :style="{ color: row.account.essence_color }">
-          {{ balanceText(row.balance) }}
+
+        <!-- B8: value logging + returns, only for investment accounts. -->
+        <div v-if="investByAccount.get(row.account.id)" class="invest">
+          <span v-if="investByAccount.get(row.account.id)!.marketValue !== null" class="invest-figs mono">
+            <span>market {{ balanceText(investByAccount.get(row.account.id)!.marketValue!) }}</span>
+            <template v-if="returnsLabel(investByAccount.get(row.account.id)!)">
+              <span class="ret" :class="returnsLabel(investByAccount.get(row.account.id)!)!.tone">
+                {{ returnsLabel(investByAccount.get(row.account.id)!)!.text }}
+              </span>
+            </template>
+            <span v-if="growthLabel(investByAccount.get(row.account.id)!)" class="growth">
+              {{ growthLabel(investByAccount.get(row.account.id)!) }}
+            </span>
+          </span>
+          <span v-else class="invest-figs mono empty-value">no value logged yet</span>
+          <button class="log-value" @click="openValue(row.account)">
+            {{ investByAccount.get(row.account.id)!.marketValue !== null ? 'update value' : 'log value' }}
+          </button>
         </div>
       </li>
       <li v-if="store.savingsAccountsView.length === 0" class="empty">
@@ -164,6 +216,13 @@ onMounted(async () => {
       @save="onGoalSave"
       @remove="onGoalRemove"
       @close="editing = null; creating = false"
+    />
+    <InvestmentValueSheet
+      v-if="valuing"
+      :account="valuing"
+      :current="investByAccount.get(valuing.id)?.marketValue ?? null"
+      @confirm="onValueConfirm"
+      @close="valuing = null"
     />
   </main>
 </template>
@@ -218,12 +277,17 @@ onMounted(async () => {
 }
 .acct {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
   border: 1px solid var(--color-border);
   border-left: 4px solid var(--color-primary);
   border-radius: 10px;
   padding: 9px 12px;
+}
+.acct-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .acct-name {
   font-size: 12px;
@@ -241,6 +305,49 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+.invest {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border);
+}
+.invest-figs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 9px;
+  color: var(--color-textDim);
+  min-width: 0;
+}
+.ret {
+  font-weight: 700;
+}
+.ret.good {
+  color: var(--color-accentText); /* a gain is a money moment (§5) */
+}
+.ret.bad {
+  color: #b3282d;
+}
+.growth {
+  color: var(--color-textDim);
+}
+.empty-value {
+  font-style: italic;
+}
+.log-value {
+  flex: none;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 16px;
+  background: var(--color-muted);
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .goals-head {
   display: flex;
