@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
+import { sheetOpen } from '../composables/useSheetGuard';
 
 const HOLD_MS = 350;
 
@@ -39,7 +40,9 @@ const router = useRouter();
 const route = useRoute();
 const store = useLedgerStore();
 
-const visible = computed(() => ['budget', 'savings', 'stats', 'more', 'caps'].includes(String(route.name)));
+const visible = computed(
+  () => !sheetOpen.value && ['budget', 'savings', 'stats', 'more', 'caps'].includes(String(route.name)),
+);
 
 const open = ref(false);
 const highlighted = ref<string | null>(null);

@@ -3,6 +3,7 @@
 // sheets. Dark hero (due total + still-due), one row per due (name, due date, loan count,
 // paid ✓ or "Log it"), next-month projection + diff note. No charts. Numbers come from the
 // store's domain-wired computeds (§4); "Log it" is the only thing that makes a due hit E.
+import { useSheetGuard } from '../composables/useSheetGuard';
 import type { DueRow, NextMonthDues } from '../domain/dues';
 
 const props = defineProps<{
@@ -13,6 +14,8 @@ const props = defineProps<{
   nextMonth: NextMonthDues;
 }>();
 const emit = defineEmits<{ logDue: [id: string]; close: [] }>();
+
+useSheetGuard();
 
 const KIND_LABEL: Record<DueRow['kind'], string> = {
   subscription: 'subscription', loan: 'loan', bill: 'bill', transfer: 'transfer',

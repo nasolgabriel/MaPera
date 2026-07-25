@@ -5,11 +5,13 @@
 import { computed, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
 import { isSavingsAccount } from '../domain/stats';
+import { useSheetGuard } from '../composables/useSheetGuard';
 import type { Goal } from '../db/repositories/types';
 
 const props = defineProps<{ goal: Goal }>();
 const emit = defineEmits<{ confirm: [sourceId: string, amount: number]; close: [] }>();
 
+useSheetGuard();
 const store = useLedgerStore();
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 

@@ -6,12 +6,14 @@ import { computed, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
 import { allocateSplit, parsePresetBuckets } from '../domain/split';
 import { isSavingsAccount } from '../domain/stats';
+import { useSheetGuard } from '../composables/useSheetGuard';
 import type { SplitBucket } from '../domain/split';
 import type { Transaction } from '../db/repositories/types';
 
 const props = defineProps<{ txn: Transaction }>();
 const emit = defineEmits<{ done: [] }>();
 
+useSheetGuard();
 const store = useLedgerStore();
 
 /** Editable bucket rows + the value as typed (pesos or %), converted at the boundary. */

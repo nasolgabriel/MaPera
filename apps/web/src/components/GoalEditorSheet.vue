@@ -4,11 +4,13 @@
 import { computed, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
 import { isSavingsAccount } from '../domain/stats';
+import { useSheetGuard } from '../composables/useSheetGuard';
 import type { Goal } from '../db/repositories/types';
 
 const props = defineProps<{ goal: Goal | null }>();
 const emit = defineEmits<{ save: [goal: Goal]; remove: [id: string]; close: [] }>();
 
+useSheetGuard();
 const store = useLedgerStore();
 
 /** A goal saves into a savings-flagged account (§8.1). */
