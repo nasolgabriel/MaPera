@@ -3,8 +3,8 @@
 // Presentation only: the series, comparison and headline % arrive as props (all money
 // math is done in domain/statistics + the store, per §4). The live partial month is
 // drawn as a dashed segment with a hollow dot and is excluded from the headline change.
-import { computed } from 'vue';
-import { useChartScrub } from '../composables/useChartScrub';
+import { computed, onMounted, ref } from 'vue';
+import { prefersReducedMotion, useChartScrub } from '../composables/useChartScrub';
 import ChartTooltip from './ChartTooltip.vue';
 import type { SeriesPoint } from '../domain/statistics';
 
@@ -79,6 +79,18 @@ const changeLabel = computed(() => {
 // ── E3 scrub + tooltip ──
 const scrub = useChartScrub(() => props.points.length);
 
+// Reveal: draw the line in as the panel settles (instant under reduced motion).
+const revealed = ref(false);
+onMounted(() => {
+  if (prefersReducedMotion()) {
+    revealed.value = true;
+    return;
+  }
+  requestAnimationFrame(() => {
+    revealed.value = true;
+  });
+});
+
 function pesoWhole(centavos: number): string {
   const sign = centavos < 0 ? '−' : '';
   return `${sign}₱ ${Math.round(Math.abs(centavos) / 100).toLocaleString('en-PH')}`;
@@ -112,7 +124,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
       </span>
     </div>
 
-    <div class="host">
+    <div class="host" :class="{ revealed }">
       <svg
         class="plot"
         :viewBox="`0 0 ${W} ${H}`"
@@ -124,15 +136,24 @@ const ariaText = computed(() => tooltipText.value || props.label);
         :aria-valuemax="Math.max(0, points.length - 1)"
         :aria-valuenow="scrub.valueNow.value"
         :aria-valuetext="ariaText"
+        :class="{ active: scrub.selected.value !== null }"
         @pointerdown="scrub.onPointerDown"
         @pointermove="scrub.onPointerMove"
         @pointerup="scrub.onPointerUp"
         @pointercancel="scrub.onPointerUp"
         @keydown="scrub.onKeydown"
       >
-        <line v-if="selected" class="marker" :x1="selected.dx" :x2="selected.dx" :y1="PAD_T" :y2="H - PAD_B" />
+        <line
+          v-if="selected"
+          class="marker"
+          :x1="0"
+          :x2="0"
+          :y1="PAD_T"
+          :y2="H - PAD_B"
+          :style="{ transform: `translateX(${selected.dx}px)` }"
+        />
         <path v-if="comparisonPath" class="cmp" :d="comparisonPath" />
-        <path v-if="solidPath" class="main" :d="solidPath" />
+        <path v-if="solidPath" class="main draw" :d="solidPath" pathLength="1" />
         <path v-if="partialPath" class="main partial" :d="partialPath" />
         <circle
           v-for="(d, i) in dots"
@@ -143,7 +164,14 @@ const ariaText = computed(() => tooltipText.value || props.label);
           class="dot"
           :class="{ hollow: d.partial }"
         />
-        <circle v-if="selected" class="sel" :cx="selected.dx" :cy="selected.dy" r="4" />
+        <circle
+          v-if="selected"
+          class="sel"
+          :cx="0"
+          :cy="0"
+          r="4"
+          :style="{ transform: `translate(${selected.dx}px, ${selected.dy}px)` }"
+        />
       </svg>
 
       <ChartTooltip
@@ -194,6 +222,15 @@ const ariaText = computed(() => tooltipText.value || props.label);
 .host {
   position: relative;
   margin-top: 8px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity var(--dur-reveal) var(--ease-standard),
+    transform var(--dur-reveal) var(--ease-standard);
+}
+.host.revealed {
+  opacity: 1;
+  transform: none;
 }
 .plot {
   width: 100%;
@@ -203,6 +240,10 @@ const ariaText = computed(() => tooltipText.value || props.label);
   cursor: pointer;
   border-radius: 6px;
   outline: none;
+  transition: filter var(--dur-press) var(--ease-standard);
+}
+.plot.active {
+  filter: brightness(1.02); /* faint lift while a point is held (§7 press feedback) */
 }
 .plot:focus-visible {
   box-shadow: 0 0 0 2px var(--color-primary);
@@ -213,12 +254,23 @@ const ariaText = computed(() => tooltipText.value || props.label);
   stroke-dasharray: 2 2;
   opacity: 0.5;
   vector-effect: non-scaling-stroke;
+  transition: transform var(--dur-move) var(--ease-standard); /* glide to follow the finger */
 }
 .sel {
   fill: var(--color-surface);
   stroke: var(--color-primary);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+  transition: transform var(--dur-move) var(--ease-standard);
+}
+/* Draw the completed line in on reveal (pathLength=1 normalizes the dash to the whole line). */
+.draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset var(--dur-reveal) var(--ease-standard);
+}
+.host.revealed .draw {
+  stroke-dashoffset: 0;
 }
 .cmp {
   fill: none;

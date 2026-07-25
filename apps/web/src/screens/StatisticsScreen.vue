@@ -17,6 +17,14 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'net', label: 'Net' },
 ];
 const tab = ref<Tab>('savings'); // §6.4: Savings tab first
+const activeIndex = computed(() => TABS.findIndex((t) => t.id === tab.value));
+// Panels slide in the direction of travel (forward = from the right) for spatial continuity (§7).
+const dir = ref<'slide-next' | 'slide-prev'>('slide-next');
+function selectTab(id: Tab): void {
+  const to = TABS.findIndex((t) => t.id === id);
+  dir.value = to >= activeIndex.value ? 'slide-next' : 'slide-prev';
+  tab.value = id;
+}
 
 // ── display formatting only (§3: format at display time) ──
 function pesoWhole(centavos: number): string {
@@ -53,8 +61,9 @@ onMounted(async () => {
   <main class="screen">
     <h1 class="title">Statistics</h1>
 
-    <!-- Segmented tabs (§6.4) -->
+    <!-- Segmented tabs (§6.4) — a sliding pill tracks the active tab -->
     <div class="tabs" role="tablist" aria-label="Statistics view">
+      <span class="tab-indicator" :style="{ '--i': activeIndex }" aria-hidden="true"></span>
       <button
         v-for="t in TABS"
         :key="t.id"
@@ -62,60 +71,64 @@ onMounted(async () => {
         role="tab"
         :aria-selected="tab === t.id"
         :class="{ active: tab === t.id }"
-        @click="tab = t.id"
+        @click="selectTab(t.id)"
       >
         {{ t.label }}
       </button>
     </div>
 
-    <!-- SAVINGS tab -->
-    <section v-if="tab === 'savings'" class="panel">
-      <p class="question mono">Is my money growing?</p>
-      <LineChart
-        :points="store.savingsTrend"
-        :comparison="store.savingsTrendComparison"
-        label="Total saved"
-        :change-pct="store.savingsTrendChange"
-      />
-      <p class="figure amount">{{ totalSavedText }} <span class="figure-sub mono">saved now</span></p>
+    <Transition :name="dir" mode="out-in">
+      <section class="panel" :key="tab">
+        <!-- SAVINGS tab -->
+        <template v-if="tab === 'savings'">
+          <p class="question mono">Is my money growing?</p>
+          <LineChart
+            :points="store.savingsTrend"
+            :comparison="store.savingsTrendComparison"
+            label="Total saved"
+            :change-pct="store.savingsTrendChange"
+          />
+          <p class="figure amount">{{ totalSavedText }} <span class="figure-sub mono">saved now</span></p>
 
-      <div class="cards">
-        <StatCard
-          label="Savings rate"
-          :value="rateCard.value"
-          :sub="rateCard.sub"
-          :delta="store.savingsRateDelta"
-          good-direction="up"
-        />
-        <StatCard
-          label="Spend vs budget"
-          :value="vsBudgetCard.value"
-          :sub="vsBudgetCard.sub"
-        />
-      </div>
+          <div class="cards">
+            <StatCard
+              label="Savings rate"
+              :value="rateCard.value"
+              :sub="rateCard.sub"
+              :delta="store.savingsRateDelta"
+              good-direction="up"
+            />
+            <StatCard
+              label="Spend vs budget"
+              :value="vsBudgetCard.value"
+              :sub="vsBudgetCard.sub"
+            />
+          </div>
 
-      <p class="question mono">How much did I spend each month?</p>
-      <MonthBars :points="store.expenseTrend" label="Spend by month" :change-pct="store.expenseTrendChange" />
-    </section>
+          <p class="question mono">How much did I spend each month?</p>
+          <MonthBars :points="store.expenseTrend" label="Spend by month" :change-pct="store.expenseTrendChange" />
+        </template>
 
-    <!-- BUDGET tab -->
-    <section v-else-if="tab === 'budget'" class="panel">
-      <p class="question mono">Am I over or under budget?</p>
-      <StatCard
-        label="Spend vs budget"
-        :value="vsBudgetCard.value"
-        :sub="vsBudgetCard.sub"
-      />
-      <p class="question mono">How much did I spend each month?</p>
-      <MonthBars :points="store.expenseTrend" label="Spend by month" :change-pct="store.expenseTrendChange" />
-    </section>
+        <!-- BUDGET tab -->
+        <template v-else-if="tab === 'budget'">
+          <p class="question mono">Am I over or under budget?</p>
+          <StatCard
+            label="Spend vs budget"
+            :value="vsBudgetCard.value"
+            :sub="vsBudgetCard.sub"
+          />
+          <p class="question mono">How much did I spend each month?</p>
+          <MonthBars :points="store.expenseTrend" label="Spend by month" :change-pct="store.expenseTrendChange" />
+        </template>
 
-    <!-- NET tab -->
-    <section v-else class="panel">
-      <p class="question mono">After spending and saving, what's left?</p>
-      <MonthBars :points="store.netTrend" label="Free cash flow" :change-pct="store.netTrendChange" />
-      <p class="note mono">Free cash flow = income − expenses − savings. Below the line = a month you spent or saved more than you earned.</p>
-    </section>
+        <!-- NET tab -->
+        <template v-else>
+          <p class="question mono">After spending and saving, what's left?</p>
+          <MonthBars :points="store.netTrend" label="Free cash flow" :change-pct="store.netTrendChange" />
+          <p class="note mono">Free cash flow = income − expenses − savings. Below the line = a month you spent or saved more than you earned.</p>
+        </template>
+      </section>
+    </Transition>
   </main>
 </template>
 
@@ -134,13 +147,28 @@ onMounted(async () => {
   font-weight: 800;
 }
 .tabs {
+  position: relative;
   display: flex;
-  gap: 4px;
   padding: 3px;
   background: var(--color-muted);
   border-radius: 12px;
 }
+/* The pill slides between the three equal slots — one shared element, not a fade per tab. */
+.tab-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 3);
+  border-radius: 9px;
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgba(22, 33, 58, 0.12);
+  transform: translateX(calc(var(--i) * 100%));
+  transition: transform var(--dur-open) var(--ease-spring);
+}
 .tab {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 36px;
   border-radius: 9px;
@@ -148,11 +176,44 @@ onMounted(async () => {
   color: var(--color-textDim);
   font-size: 12px;
   font-weight: 700;
+  transition:
+    color var(--dur-move) var(--ease-standard),
+    transform var(--dur-press) var(--ease-standard);
+}
+.tab:active {
+  transform: scale(0.96); /* press feedback (§7 scale-feedback) */
 }
 .tab.active {
-  background: var(--color-surface);
   color: var(--color-primary);
-  box-shadow: 0 1px 2px rgba(22, 33, 58, 0.12);
+}
+/* Panel swap: slide in the travel direction + crossfade, exit faster than enter (§7). */
+.slide-next-enter-active,
+.slide-prev-enter-active {
+  transition:
+    opacity 240ms var(--ease-standard),
+    transform 240ms var(--ease-standard);
+}
+.slide-next-leave-active,
+.slide-prev-leave-active {
+  transition:
+    opacity 150ms var(--ease-standard),
+    transform 150ms var(--ease-standard);
+}
+.slide-next-enter-from {
+  opacity: 0;
+  transform: translateX(14px);
+}
+.slide-next-leave-to {
+  opacity: 0;
+  transform: translateX(-14px);
+}
+.slide-prev-enter-from {
+  opacity: 0;
+  transform: translateX(-14px);
+}
+.slide-prev-leave-to {
+  opacity: 0;
+  transform: translateX(14px);
 }
 .panel {
   display: flex;

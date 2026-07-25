@@ -4,8 +4,8 @@
 // the Net tab (free_cash_flow, which can go negative) shares one component with the
 // positive-only expense bars. The live partial month is drawn outlined and excluded from
 // the headline change (§8.7).
-import { computed } from 'vue';
-import { useChartScrub } from '../composables/useChartScrub';
+import { computed, onMounted, ref } from 'vue';
+import { prefersReducedMotion, useChartScrub } from '../composables/useChartScrub';
 import ChartTooltip from './ChartTooltip.vue';
 import type { SeriesPoint } from '../domain/statistics';
 
@@ -61,6 +61,18 @@ const changeLabel = computed(() => {
 // ── E3 scrub + tooltip ──
 const scrub = useChartScrub(() => props.points.length);
 
+// Reveal: bars grow up from the baseline, staggered (instant under reduced motion).
+const revealed = ref(false);
+onMounted(() => {
+  if (prefersReducedMotion()) {
+    revealed.value = true;
+    return;
+  }
+  requestAnimationFrame(() => {
+    revealed.value = true;
+  });
+});
+
 function pesoWhole(centavos: number): string {
   const sign = centavos < 0 ? '−' : '';
   return `${sign}₱ ${Math.round(Math.abs(centavos) / 100).toLocaleString('en-PH')}`;
@@ -94,7 +106,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
       <span class="change mono">{{ changeLabel }}</span>
     </div>
 
-    <div class="host">
+    <div class="host" :class="{ revealed }">
       <svg
         class="plot"
         :viewBox="`0 0 ${W} ${H}`"
@@ -106,6 +118,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
         :aria-valuemax="Math.max(0, points.length - 1)"
         :aria-valuenow="scrub.valueNow.value"
         :aria-valuetext="ariaText"
+        :class="{ active: scrub.selected.value !== null }"
         @pointerdown="scrub.onPointerDown"
         @pointermove="scrub.onPointerMove"
         @pointerup="scrub.onPointerUp"
@@ -113,7 +126,15 @@ const ariaText = computed(() => tooltipText.value || props.label);
         @keydown="scrub.onKeydown"
       >
         <line v-if="geometry.hasNegative" class="zero" :x1="0" :x2="W" :y1="geometry.zeroY" :y2="geometry.zeroY" />
-        <line v-if="selected" class="marker" :x1="selected.cx" :x2="selected.cx" :y1="0" :y2="H" />
+        <line
+          v-if="selected"
+          class="marker"
+          :x1="0"
+          :x2="0"
+          :y1="0"
+          :y2="H"
+          :style="{ transform: `translateX(${selected.cx}px)` }"
+        />
         <rect
           v-for="(b, i) in geometry.bars"
           :key="b.month"
@@ -124,6 +145,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
           rx="1.5"
           class="bar"
           :class="{ negative: b.negative, partial: b.partial, selected: selected?.index === i }"
+          :style="{ transitionDelay: revealed ? `${i * 35}ms` : '0ms' }"
         />
       </svg>
 
@@ -169,6 +191,11 @@ const ariaText = computed(() => tooltipText.value || props.label);
 .host {
   position: relative;
   margin-top: 8px;
+  opacity: 0;
+  transition: opacity var(--dur-reveal) var(--ease-standard);
+}
+.host.revealed {
+  opacity: 1;
 }
 .plot {
   width: 100%;
@@ -177,6 +204,10 @@ const ariaText = computed(() => tooltipText.value || props.label);
   cursor: pointer;
   border-radius: 6px;
   outline: none;
+  transition: filter var(--dur-press) var(--ease-standard);
+}
+.plot.active {
+  filter: brightness(1.02);
 }
 .plot:focus-visible {
   box-shadow: 0 0 0 2px var(--color-primary);
@@ -187,15 +218,26 @@ const ariaText = computed(() => tooltipText.value || props.label);
   stroke-dasharray: 2 2;
   opacity: 0.5;
   vector-effect: non-scaling-stroke;
+  transition: transform var(--dur-move) var(--ease-standard); /* glide to follow the finger */
 }
 .bar {
   fill: var(--color-primary);
+  transform: scaleY(0);
+  transform-box: fill-box;
+  transform-origin: bottom; /* grow up from the baseline */
+  transition:
+    transform var(--dur-reveal) var(--ease-spring),
+    fill var(--dur-move) var(--ease-standard);
+}
+.host.revealed .bar {
+  transform: scaleY(1);
 }
 .bar.selected {
   fill: var(--color-accent); /* selected month = a money moment (§5); no cap semantic here */
 }
 .bar.negative {
   fill: #b3282d;
+  transform-origin: top; /* negatives hang from the zero line — grow downward */
 }
 .bar.selected.negative {
   fill: var(--color-accent);

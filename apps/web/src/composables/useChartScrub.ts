@@ -5,6 +5,11 @@
 // asserted). No money math here (§4); this is pure UI state.
 import { computed, ref, type Ref } from 'vue';
 
+/** True when the OS asks to minimize motion — reveal charts instantly then (§7). */
+export function prefersReducedMotion(): boolean {
+  return typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 /** Map a pointer clientX to the nearest data index, clamped to 0..n-1. */
 export function nearestIndex(clientX: number, rect: { left: number; width: number }, n: number): number {
   if (n <= 1) return 0;

@@ -38,6 +38,10 @@ const caretPct = computed(() => Math.min(100, Math.max(0, props.xPct - leftPct.v
   pointer-events: none;
   z-index: 2;
   animation: tip-in 120ms ease;
+  /* Slide along as the scrub moves between months (the fade-in masks the first placement). */
+  transition:
+    left var(--dur-move) var(--ease-standard),
+    top var(--dur-move) var(--ease-standard);
 }
 .bubble {
   min-width: 84px;

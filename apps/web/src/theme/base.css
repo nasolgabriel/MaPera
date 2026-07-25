@@ -10,6 +10,27 @@
   /* Device safe areas: status bar / camera cutout on top, gesture bar below. */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Motion (README §5) — one rhythm for the whole app so every animation shares a feel.
+     Reuse these tokens instead of re-typing the curves per component. */
+  --ease-spring: cubic-bezier(0.41, -0.86, 0.76, 1.89); /* emerge / retract — the signature */
+  --ease-pop: cubic-bezier(0.41, -2, 0.76, 2); /* a glyph popping after its container arrives */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1); /* state changes under the finger */
+  --dur-press: 90ms; /* press feedback (<100ms, §7) */
+  --dur-move: 140ms; /* a marker/value gliding to follow the finger */
+  --dur-open: 300ms; /* open / close */
+  --dur-reveal: 420ms; /* content revealing on enter */
+}
+
+/* Data must be readable immediately and the app must never move for users who opt out (§7). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 html,
