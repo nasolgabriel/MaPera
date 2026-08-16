@@ -145,7 +145,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
           :style="{ transform: `translateX(${selected.dx}px)` }"
         />
         <path v-if="comparisonPath" class="cmp" :d="comparisonPath" />
-        <path v-if="solidPath" class="main draw" :d="solidPath" pathLength="1" />
+        <path v-if="solidPath" class="main draw" :d="solidPath" />
         <path v-if="partialPath" class="main partial" :d="partialPath" />
         <circle
           v-for="(d, i) in dots"
@@ -255,14 +255,19 @@ const ariaText = computed(() => tooltipText.value || props.label);
   vector-effect: non-scaling-stroke;
   transition: transform var(--dur-move) var(--ease-standard);
 }
-/* Draw the completed line in on reveal (pathLength=1 normalizes the dash to the whole line). */
+/* Draw the completed line in on reveal by uncovering it left-to-right.
+   NOT a stroke-dasharray/pathLength wipe: .main is non-scaling-stroke and the plot is
+   preserveAspectRatio="none", so the dash resolves in device space against a path the
+   viewBox has stretched — pathLength's normalization doesn't apply and the line stays
+   permanently cut short of its last point. Clipping is independent of both.
+   The 4px bleed keeps the stroke and its round caps off the fill-box edges (percentages
+   would collapse on a perfectly flat series, whose bounding box has no height). */
 .draw {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  transition: stroke-dashoffset var(--dur-reveal) var(--ease-standard);
+  clip-path: inset(-4px calc(100% + 4px) -4px -4px);
+  transition: clip-path var(--dur-reveal) var(--ease-standard);
 }
 .host.revealed .draw {
-  stroke-dashoffset: 0;
+  clip-path: inset(-4px -4px -4px -4px);
 }
 .cmp {
   fill: none;

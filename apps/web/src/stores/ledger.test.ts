@@ -495,6 +495,105 @@ describe('investments (B8)', () => {
   });
 });
 
+describe('credit card (B9)', () => {
+  /** The wireframe D3 card: ₱30,000 limit, statement on the 15th, 1 pt / ₱25. */
+  async function addCard(): Promise<void> {
+    await createAccountsRepo(dbRef.current!).create({
+      id: 'acc-rcbc', name: 'RCBC Flex', type: 'credit_card', starting_balance: 0, essence_color: '#B3282D',
+      archived: false, credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500,
+    });
+  }
+
+  /** June ₱4,890 (on the statement) + ₱1,200 (after it), July ₱4,200 charged. */
+  async function addCharges(): Promise<void> {
+    const txns = createTransactionsRepo(dbRef.current!);
+    const rows: Array<[string, number, string]> = [
+      ['txn-card-jun-1', 489000, '2026-06-10'],
+      ['txn-card-jun-2', 120000, '2026-06-24'],
+      ['txn-card-jul-1', 420000, '2026-07-08'],
+    ];
+    for (const [id, amount, date] of rows) {
+      await txns.create({
+        id, amount, kind: 'expense', account_id: 'acc-rcbc', to_account_id: null,
+        category_id: null, date, note: null,
+        discount_rule_id: null, recurring_id: null, saved_item_id: null,
+      });
+    }
+  }
+
+  it('creditCardsView computes the §8.6 figures and flags a healthy card', async () => {
+    await addCard();
+    await addCharges();
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    // Pay the June statement in full from cash (regular → regular, so S_net is untouched).
+    await store.addTransaction({
+      amount: 489000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-rcbc', category_id: null, date: '2026-07-05', note: 'June statement',
+    });
+
+    const card = store.creditCardsView.find((c) => c.account.id === 'acc-rcbc')!;
+    expect(card.owed).toBe(540000); // 4,890 + 1,200 + 4,200 − 4,890
+    expect(card.utilization).toBeCloseTo(18); // of the ₱30,000 limit
+    expect(card.cardSpend).toBe(420000); // July charges only — the payment is not spend
+    expect(card.incomeShare).toBeCloseTo(21); // of the ₱20,000 seed income
+    expect(card.points).toBe(168); // floor(4,200 / 25)
+    expect(card.previousStatement).toBe(489000); // June 15 snapshot, not the 24th charge
+    expect(card.paidInFull).toBe(true);
+    expect(card.healthy).toBe(true);
+    expect(store.cardHealthByAccount.get('acc-rcbc')!.owed).toBe(540000);
+  });
+
+  it('a card bill payment changes neither E nor cash_flow (invariant 8)', async () => {
+    await addCard();
+    await addCharges();
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    const before = await snapshot();
+    const eBefore = expenses(before.accounts, before.txns, MONTH);
+    const flowBefore = cashFlow(before.accounts, before.txns, MONTH);
+    const owedBefore = store.creditCardsView.find((c) => c.account.id === 'acc-rcbc')!.owed;
+
+    await store.addTransaction({
+      amount: 489000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-rcbc', category_id: null, date: '2026-07-05', note: 'June statement',
+    });
+
+    const after = await snapshot();
+    expect(expenses(after.accounts, after.txns, MONTH)).toBe(eBefore);
+    expect(cashFlow(after.accounts, after.txns, MONTH)).toBe(flowBefore);
+    // …and the debt really moved: owed dropped by exactly the payment.
+    expect(store.creditCardsView.find((c) => c.account.id === 'acc-rcbc')!.owed).toBe(owedBefore - 489000);
+  });
+
+  it('flags an unpaid statement red and recomputes after the payment lands (invariant 4)', async () => {
+    await addCard();
+    await addCharges();
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+
+    let card = store.creditCardsView.find((c) => c.account.id === 'acc-rcbc')!;
+    expect(card.paidInFull).toBe(false); // June's ₱4,890 statement is still outstanding
+    expect(card.checks.paidInFull).toBe('bad');
+    expect(card.healthy).toBe(false);
+    expect(card.estimatedInterest).toBe(Math.round(card.owed * 0.035));
+
+    await store.addTransaction({
+      amount: 489000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-rcbc', category_id: null, date: '2026-07-05', note: 'June statement',
+    });
+
+    card = store.creditCardsView.find((c) => c.account.id === 'acc-rcbc')!;
+    expect(card.paidInFull).toBe(true);
+    expect(card.healthy).toBe(true);
+    expect(card.estimatedInterest).toBeNull();
+  });
+});
+
 describe('budget home calendar + graph wiring (E2)', () => {
   it('monthCells lay out the visible month and recompute after add/delete (invariant 4)', async () => {
     const store = useLedgerStore();

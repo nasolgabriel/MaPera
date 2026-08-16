@@ -7,6 +7,7 @@ import { createAccountsRepo } from './db/repositories/accountsRepo'
 import { createGoalsRepo } from './db/repositories/goalsRepo'
 import { createInvestmentValuesRepo } from './db/repositories/investmentValuesRepo'
 import { createRecurringRepo } from './db/repositories/recurringRepo'
+import { createTransactionsRepo } from './db/repositories/transactionsRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
 import { router } from './router'
@@ -49,10 +50,10 @@ describe('app shell', () => {
     expect(wrapper.findAll('.banner .blank')).toHaveLength(4)
   })
 
-  it('has routes for all seven screens', () => {
+  it('has routes for all eight screens', () => {
     const names = router.getRoutes().map((r) => r.name)
     expect(names).toEqual(
-      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps']),
+      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card']),
     )
   })
 
@@ -105,6 +106,73 @@ describe('app shell', () => {
     const logBtn = wrapper.find('.log-value')
     expect(logBtn.exists()).toBe(true)
     expect(logBtn.text()).toContain('update value') // a value is already logged
+  })
+
+  // Assumes "now" is the seed month (July 2026), like the tests above.
+  it('renders the credit-card health screen with the three §7.8 checks (B9)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    await createAccountsRepo(dbRef.current).create({
+      id: 'acc-rcbc', name: 'RCBC Flex', type: 'credit_card', starting_balance: 0, essence_color: '#B3282D',
+      archived: false, credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500,
+    })
+    const txns = createTransactionsRepo(dbRef.current)
+    const row = (id: string, amount: number, date: string) => ({
+      id, amount, kind: 'expense' as const, account_id: 'acc-rcbc', to_account_id: null,
+      category_id: null, date, note: null,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    })
+    await txns.create(row('txn-card-jun-1', 489000, '2026-06-10'))
+    await txns.create(row('txn-card-jun-2', 120000, '2026-06-24'))
+    await txns.create(row('txn-card-jul-1', 420000, '2026-07-08'))
+    await txns.create({
+      id: 'txn-card-pay', amount: 489000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-rcbc',
+      category_id: null, date: '2026-07-05', note: 'June statement',
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    })
+
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/card')
+    await flushPromises() // lazy route component import + store.load()
+
+    const panel = wrapper.find('.card-health')
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain('RCBC Flex')
+    expect(panel.text()).toContain('5,400') // owed
+    expect(panel.text()).toContain('18%') // utilization of the ₱30,000 limit
+    expect(panel.text()).toContain('21%') // card spend vs the ₱20,000 seed income
+    expect(panel.text()).toContain('168 pts') // floor(₱4,200 / ₱25)
+    expect(panel.text()).toContain('June statement paid in full')
+    expect(panel.text()).toContain('CARD HEALTHY')
+    expect(panel.classes()).not.toContain('unhealthy')
+  })
+
+  it('opens card health from the Budget-home card chip, tinted when a check is red (B9)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    await createAccountsRepo(dbRef.current).create({
+      id: 'acc-rcbc', name: 'RCBC Flex', type: 'credit_card', starting_balance: 0, essence_color: '#B3282D',
+      archived: false, credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500,
+    })
+    // A June statement left unpaid → paid_in_full is red, so the chip tints (§7.8).
+    await createTransactionsRepo(dbRef.current).create({
+      id: 'txn-card-jun-1', amount: 489000, kind: 'expense', account_id: 'acc-rcbc', to_account_id: null,
+      category_id: null, date: '2026-06-10', note: null,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    })
+
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/')
+    await flushPromises()
+
+    const chip = wrapper.find('[aria-label="RCBC Flex card health"]')
+    expect(chip.exists()).toBe(true)
+    expect(chip.classes()).toContain('alert')
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('card')
+    expect(wrapper.text()).toContain('not cleared')
   })
 
   // Like the month-banner test above, this assumes "now" is the seed month (July 2026).

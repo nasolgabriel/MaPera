@@ -12,7 +12,7 @@ import { createInvestmentValuesRepo } from './repositories/investmentValuesRepo'
 import { createRecurringRepo } from './repositories/recurringRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
-import { seed, seedBudgets, seedDailySpend, seedHistory, seedInvestments, seedRecurring, seedSavings, seedSplitPresets } from './seed';
+import { seed, seedBudgets, seedCreditCard, seedDailySpend, seedHistory, seedInvestments, seedRecurring, seedSavings, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -63,6 +63,9 @@ async function init(): Promise<SqlDriver> {
   if ((await createTransactionsRepo(db).getById('txn-h-2026-02-inc')) === null) {
     await seedHistory(db);
   }
+  // Credit card + its charges/payment (B9) so the §7.8 health screen has the D3 scene to
+  // draw — app path only (the charges move E(July)); self-guards on the account existing.
+  await seedCreditCard(db);
   return db;
 }
 

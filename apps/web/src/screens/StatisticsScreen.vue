@@ -3,12 +3,15 @@
 // number comes from the store's domain-wired computeds (§4: no math in the .vue). The live
 // partial month is drawn dashed/hollow and excluded from the headline change (§8.7).
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
+import { hasFailingCheck } from '../domain/credit';
 import LineChart from '../components/LineChart.vue';
 import MonthBars from '../components/MonthBars.vue';
 import StatCard from '../components/StatCard.vue';
 
 const store = useLedgerStore();
+const router = useRouter();
 
 type Tab = 'savings' | 'budget' | 'net';
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
@@ -51,6 +54,23 @@ const vsBudgetCard = computed(() => {
 
 /** total_saved right now — the Savings line's current figure. */
 const totalSavedText = computed(() => pesoWhole(store.totalSavedAmount));
+
+/** §7.8 card-health link on the Budget tab (the module map files card health under Statistics;
+ *  the §6.4 tab set is DECIDED at three, so this is a row into the D3 screen, not a 4th tab). */
+const cardLink = computed(() => {
+  const cards = store.creditCardsView;
+  if (cards.length === 0) return null;
+  const failing = cards.filter(hasFailingCheck).length;
+  if (cards.length === 1) {
+    const c = cards[0]!;
+    return { name: c.account.name, status: failing > 0 ? 'needs attention' : c.healthy ? 'card healthy' : 'needs data', bad: failing > 0 };
+  }
+  return {
+    name: `${cards.length} cards`,
+    status: failing > 0 ? `${failing} need attention` : 'all healthy',
+    bad: failing > 0,
+  };
+});
 
 onMounted(async () => {
   if (!store.loaded) await store.load();
@@ -119,6 +139,15 @@ onMounted(async () => {
           />
           <p class="question mono">How much did I spend each month?</p>
           <MonthBars :points="store.expenseTrend" label="Spend by month" :change-pct="store.expenseTrendChange" />
+
+          <!-- §7.8 credit-card health lives in this module — the panel itself is the D3 screen. -->
+          <button v-if="cardLink" class="card-link" :class="{ bad: cardLink.bad }" @click="router.push('/card')">
+            <span class="card-link-text">
+              <span class="card-link-name">Card health · {{ cardLink.name }}</span>
+              <span class="card-link-status mono">{{ cardLink.status }}</span>
+            </span>
+            <span class="card-link-chevron" aria-hidden="true">›</span>
+          </button>
         </template>
 
         <!-- NET tab -->
@@ -246,6 +275,45 @@ onMounted(async () => {
   margin: 2px 0 0;
   font-size: 10px;
   line-height: 1.5;
+  color: var(--color-textDim);
+}
+.card-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  padding: 9px 12px;
+}
+.card-link.bad {
+  border-color: var(--color-danger); /* §7.8: a red check follows the card everywhere */
+}
+.card-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.card-link-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.card-link-status {
+  font-size: 9px;
+  color: var(--color-textDim);
+}
+.card-link.bad .card-link-status {
+  color: var(--color-danger);
+}
+.card-link-chevron {
+  flex: none;
+  font-size: 15px;
   color: var(--color-textDim);
 }
 </style>

@@ -32,6 +32,7 @@ import {
 import {
   investmentReturns, periodGrowth, returnPct,
 } from '../domain/investments';
+import { cardHealth } from '../domain/credit';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
 import {
   accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
@@ -252,6 +253,18 @@ export const useLedgerStore = defineStore('ledger', () => {
         };
       }),
   );
+
+  // ── B9 Credit card (§7.8 / §8.6) — all health math via domain/credit ──
+
+  /** Active credit cards with their §8.6 figures + the three §7.8 check verdicts, for the
+   *  visible month (income_share and paid_in_full are both month-scoped). */
+  const creditCardsView = computed(() =>
+    accounts.value
+      .filter((a) => !a.archived && a.type === 'credit_card')
+      .map((a) => cardHealth(a, accounts.value, transactions.value, month.value)),
+  );
+  /** Same rows keyed by account id — the Budget-home chip reads its card's verdict from here. */
+  const cardHealthByAccount = computed(() => new Map(creditCardsView.value.map((c) => [c.account.id, c])));
 
   // ── B6 Recurring + dues (§7.5 / §8.5) — all money math via domain/dues ──
 
@@ -553,7 +566,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
     savingsAccountsView, totalSavedAmount, savingsRateInfo, goalAvgContribution, goalProjections,
-    investmentsView,
+    investmentsView, creditCardsView, cardHealthByAccount,
     duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
     statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
     savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,

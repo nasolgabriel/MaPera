@@ -41,7 +41,7 @@ const route = useRoute();
 const store = useLedgerStore();
 
 const visible = computed(
-  () => !sheetOpen.value && ['budget', 'savings', 'stats', 'more', 'caps'].includes(String(route.name)),
+  () => !sheetOpen.value && ['budget', 'savings', 'stats', 'more', 'caps', 'card'].includes(String(route.name)),
 );
 
 const open = ref(false);
@@ -52,8 +52,11 @@ let bloomedThisPress = false;
 
 const gaugeStyle = computed(() => {
   const pct = (store.hubGauge ?? 0) * 100;
+  // Unspent remainder is a washed-out accent track, not --color-border: the border gray
+  // vanishes against the page background and the ring looks broken instead of partial.
+  const track = 'color-mix(in srgb, var(--color-accent) 30%, var(--color-surface))';
   return {
-    background: `conic-gradient(var(--color-accent) 0 ${pct}%, var(--color-border) ${pct}% 100%)`,
+    background: `conic-gradient(var(--color-accent) 0 ${pct}%, ${track} ${pct}% 100%)`,
   };
 });
 

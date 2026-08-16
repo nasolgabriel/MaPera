@@ -9,6 +9,7 @@ export const router = createRouter({
     { path: '/stats', name: 'stats', component: () => import('../screens/StatisticsScreen.vue') },
     { path: '/more', name: 'more', component: () => import('../screens/MoreScreen.vue') },
     { path: '/caps', name: 'caps', component: () => import('../screens/CapsScreen.vue') },
+    { path: '/card', name: 'card', component: () => import('../screens/CreditCardScreen.vue') },
     { path: '/log', name: 'log', component: () => import('../screens/LogSheetScreen.vue') },
     { path: '/lock', name: 'lock', component: () => import('../screens/LockScreen.vue') },
   ],

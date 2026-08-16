@@ -253,6 +253,63 @@ export async function seedInvestments(db: SqlDriver): Promise<void> {
   }
 }
 
+/**
+ * Dev-only credit card (B9): the wireframe D3 scene, exactly. RCBC Flex — ₱30,000 limit,
+ * statement on the 15th, due on the 5th, 1 pt per ₱25 (points_rate is CENTAVOS per point).
+ *
+ * The rows reproduce every figure on that wireframe:
+ *   June  ₱4,890 charged on the 10th → the June statement (snapshot on the 15th)
+ *   June  ₱1,200 charged on the 24th → lands on the NEXT statement, not June's
+ *   July  ₱4,200 charged            → card_spend(July): 21% of the ₱20,000 seed income,
+ *                                     168 points at 1 pt / ₱25
+ *   July  ₱4,890 paid on the 5th    → paid_in_full ✓ (invariant 8: a transfer, not an expense)
+ *   → owed = 4,890 + 1,200 + 4,200 − 4,890 = ₱5,400 = 18% of the ₱30,000 limit. All green.
+ *
+ * The bill payment comes from acc-cash (regular → regular) ON PURPOSE: paying from BPI would
+ * be a savings→regular transfer, i.e. a ₱4,890 WITHDRAWAL in §7.2 terms, which would drag the
+ * seeded July S_net negative and break the documented C1 hero (10% / Silver). The card's own
+ * charges are UNCAPPED (cat-shopping), so the documented donut numbers survive — the same
+ * reason seedDailySpend uses that category.
+ *
+ * NOT called from seed(): every domain/repo/store test asserts against the §8.1 July totals,
+ * and these rows move E(July). App path only, exactly like seedDailySpend/seedSavings/
+ * seedRecurring/seedHistory. Guarded on the account not existing yet.
+ */
+export async function seedCreditCard(db: SqlDriver): Promise<void> {
+  const accounts = createAccountsRepo(db);
+  if ((await accounts.getById('acc-rcbc')) !== null) return;
+  await accounts.create({
+    id: 'acc-rcbc', name: 'RCBC Flex', type: 'credit_card', starting_balance: 0, essence_color: '#B3282D',
+    archived: false, credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500,
+  });
+
+  const categories = createCategoriesRepo(db);
+  if ((await categories.getById('cat-shopping')) === null) {
+    await categories.create({ id: 'cat-shopping', name: 'Shopping', icon: 'bag', kind: 'expense', sort_order: 2 });
+  }
+
+  const transactions = createTransactionsRepo(db);
+  const charges: Array<[string, number, string, string]> = [
+    ['txn-card-jun-1', 489000, '2026-06-10', 'Card · groceries + fuel'],
+    ['txn-card-jun-2', 120000, '2026-06-24', 'Card · pharmacy'],
+    ['txn-card-jul-1', 260000, '2026-07-03', 'Card · plane ticket'],
+    ['txn-card-jul-2', 160000, '2026-07-12', 'Card · groceries'],
+  ];
+  for (const [id, amount, date, note] of charges) {
+    await transactions.create({
+      id, amount, kind: 'expense', account_id: 'acc-rcbc', to_account_id: null,
+      category_id: 'cat-shopping', date, note,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    });
+  }
+  // Bill payment: a TRANSFER into the card (invariant 8 — changes neither E nor cash_flow).
+  await transactions.create({
+    id: 'txn-card-pay', amount: 489000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-rcbc',
+    category_id: null, date: '2026-07-05', note: 'June statement',
+    discount_rule_id: null, recurring_id: null, saved_item_id: null,
+  });
+}
+
 // One starter preset (§7.3: 50/30/20 is a starter, never a limit). Applying it to the
 // seed salary allocates 1,000,000 + 500,000 + 200,000 centavos, ₱3,000 left free.
 // Exported separately so db/index.ts can top up pre-B4 dev DBs.

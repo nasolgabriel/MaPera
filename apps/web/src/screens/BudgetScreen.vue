@@ -10,6 +10,7 @@ import DuesCard from '../components/DuesCard.vue';
 import DuesSheet from '../components/DuesSheet.vue';
 import MonthBanner from '../components/MonthBanner.vue';
 import SpendGraph from '../components/SpendGraph.vue';
+import { hasFailingCheck } from '../domain/credit';
 import type { DonutSlice } from '../components/DonutChart.vue';
 import type { Transaction } from '../db/repositories/types';
 
@@ -25,6 +26,12 @@ const UNCAT_KEY = '__uncategorized__';
 const categoryName = computed(() => new Map(store.categories.map((c) => [c.id, c.name])));
 const accountName = computed(() => new Map(store.accounts.map((a) => [a.id, a.name])));
 const activeAccounts = computed(() => store.accounts.filter((a) => !a.archived));
+
+/** §7.8: a credit-card chip opens the card-health screen, and tints red when a check is red. */
+function cardAlert(accountId: string): boolean {
+  const health = store.cardHealthByAccount.get(accountId);
+  return health !== undefined && hasFailingCheck(health);
+}
 
 const monthLabel = computed(() => {
   const [y, m] = store.month.split('-').map(Number);
@@ -369,15 +376,20 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="chips-scroll">
-      <div
+      <!-- A credit-card chip is a button into the §7.8 health screen; a red check tints it. -->
+      <component
+        :is="a.type === 'credit_card' ? 'button' : 'div'"
         v-for="a in activeAccounts"
         :key="a.id"
         class="acct-chip"
-        :style="{ borderLeftColor: a.essence_color }"
+        :class="{ card: a.type === 'credit_card', alert: cardAlert(a.id) }"
+        :style="{ borderLeftColor: cardAlert(a.id) ? 'var(--color-danger)' : a.essence_color }"
+        :aria-label="a.type === 'credit_card' ? `${a.name} card health` : undefined"
+        @click="a.type === 'credit_card' ? router.push('/card') : undefined"
       >
         <div class="acct-name">{{ a.name }}</div>
         <div class="acct-balance mono">{{ ((store.accountBalances.get(a.id) ?? 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) }}</div>
-      </div>
+      </component>
     </div>
 
     <!-- §7.5 Monthly dues card — between account chips and recents (README §6.1). -->
@@ -642,6 +654,20 @@ onBeforeUnmount(() => {
   background: var(--color-muted);
   border-left: 3px solid var(--color-primary);
   padding: 7px 9px;
+}
+/* The card chip is a <button> (the global reset already gives it the §5 44px target). */
+.acct-chip.card {
+  text-align: left;
+}
+/* §7.8: any red check tints the card row red. */
+.acct-chip.alert {
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-left: 3px solid var(--color-danger);
+}
+.acct-chip.alert .acct-name,
+.acct-chip.alert .acct-balance {
+  color: var(--color-danger);
 }
 .acct-name {
   font-size: 9px;
