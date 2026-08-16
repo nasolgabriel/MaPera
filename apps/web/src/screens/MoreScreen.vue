@@ -1,19 +1,60 @@
 <script setup lang="ts">
-// §6.6 More — settings list (accounts, recurring, saved items, discounts, lock, theme, backup).
+import { RouterLink } from 'vue-router';
 </script>
 
 <template>
   <main class="screen">
-    <h1>More</h1>
-    <p class="placeholder">Settings list — filled in across Phase B/C.</p>
+    <h1 class="title">More</h1>
+
+    <nav class="list">
+      <RouterLink class="row" to="/items">
+        <span>Saved items</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </RouterLink>
+    </nav>
+
+    <p class="placeholder">Accounts, discounts, lock, theme and backup land in later sessions.</p>
   </main>
 </template>
 
 <style scoped>
 .screen {
-  padding: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 14px 16px 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.row {
+  min-height: 44px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  text-decoration: none;
+}
+.chevron {
+  color: var(--color-textDim);
 }
 .placeholder {
+  margin: 0;
+  font-size: 12px;
   color: var(--color-textDim);
 }
 </style>

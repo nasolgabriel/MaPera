@@ -10,9 +10,10 @@ import { createBudgetsRepo } from './repositories/budgetsRepo';
 import { createGoalsRepo } from './repositories/goalsRepo';
 import { createInvestmentValuesRepo } from './repositories/investmentValuesRepo';
 import { createRecurringRepo } from './repositories/recurringRepo';
+import { createSavedItemsRepo } from './repositories/savedItemsRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
-import { seed, seedBudgets, seedCreditCard, seedDailySpend, seedHistory, seedInvestments, seedRecurring, seedSavings, seedSplitPresets } from './seed';
+import { seed, seedBudgets, seedCreditCard, seedDailySpend, seedHistory, seedInvestments, seedRecurring, seedSavedItems, seedSavings, seedSplitPresets } from './seed';
 
 let dbPromise: Promise<SqlDriver> | null = null;
 
@@ -38,6 +39,9 @@ async function init(): Promise<SqlDriver> {
     if ((await createSplitPresetsRepo(db).list()).length === 0) {
       // Dev DBs created before B4 have no split presets — top up the starter preset.
       await seedSplitPresets(db);
+    }
+    if ((await createSavedItemsRepo(db).list()).length === 0) {
+      await seedSavedItems(db);
     }
   }
   // Day-to-day spend lives outside seed() so tests keep the exact §8.1 totals; the app

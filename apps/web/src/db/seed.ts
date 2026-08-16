@@ -5,6 +5,7 @@ import { createCategoriesRepo } from './repositories/categoriesRepo';
 import { createGoalsRepo } from './repositories/goalsRepo';
 import { createInvestmentValuesRepo } from './repositories/investmentValuesRepo';
 import { createRecurringRepo } from './repositories/recurringRepo';
+import { createSavedItemsRepo } from './repositories/savedItemsRepo';
 import { createSplitPresetsRepo } from './repositories/splitPresetsRepo';
 import { createTransactionsRepo } from './repositories/transactionsRepo';
 import type { RecurringTemplate } from '../domain/dues';
@@ -48,6 +49,7 @@ export async function seed(db: SqlDriver): Promise<void> {
 
   await seedBudgets(db);
   await seedSplitPresets(db);
+  await seedSavedItems(db);
 }
 
 // Σ cap = ₱15,000 vs seed spend ₱13,500 → hub gauge 90%. Exported separately so
@@ -323,5 +325,24 @@ export async function seedSplitPresets(db: SqlDriver): Promise<void> {
     id: 'preset-salary',
     name: 'Salary',
     buckets: JSON.stringify(buckets),
+  });
+}
+
+export async function seedSavedItems(db: SqlDriver): Promise<void> {
+  const items = createSavedItemsRepo(db);
+  await items.create({
+    id: 'si-sardines', name: 'Ligo Sardines', description: '155g easy-open',
+    usual_price: 2600, last_price: 2600, category_id: 'cat-food', kind: 'expense',
+    use_count: 23, last_used_at: '2026-07-12',
+  });
+  await items.create({
+    id: 'si-pandesal', name: 'Ligaya Bakery pandesal', description: null,
+    usual_price: 4000, last_price: null, category_id: 'cat-food', kind: 'expense',
+    use_count: 9, last_used_at: '2026-07-13',
+  });
+  await items.create({
+    id: 'si-jeepney', name: 'Jeepney fare', description: 'Cubao to Katipunan',
+    usual_price: 1300, last_price: 1300, category_id: 'cat-transport', kind: 'expense',
+    use_count: 31, last_used_at: '2026-07-14',
   });
 }

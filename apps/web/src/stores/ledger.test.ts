@@ -7,6 +7,7 @@ import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
 import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesRepo';
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
+import { createSavedItemsRepo } from '../db/repositories/savedItemsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import { cashFlow, expenses, totalBalance, sNet } from '../domain/stats';
 import type { Goal, Recurring } from '../db/repositories/types';
@@ -692,5 +693,108 @@ describe('reactive calendar day (month rollover)', () => {
 
     expect(store.liveMonth).toBe('2026-08');
     expect(store.month).toBe('2026-05');
+  });
+});
+
+describe('saved items (B10 · §7.6)', () => {
+  it('load() pulls the library, ranked by use_count then recency', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.savedItems.map((i) => i.id)).toEqual(['si-jeepney', 'si-sardines', 'si-pandesal']);
+  });
+
+  it('a log that used an item bumps use_count, remembers the price paid, moves recency', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.addTransaction({
+      amount: 2800, kind: 'expense', account_id: 'acc-cash', to_account_id: null,
+      category_id: 'cat-food', date: '2026-07-14', note: 'Ligo Sardines',
+      saved_item_id: 'si-sardines',
+    });
+
+    const item = await createSavedItemsRepo(dbRef.current!).getById('si-sardines');
+    expect(item).toMatchObject({ use_count: 24, last_price: 2800, last_used_at: '2026-07-14' });
+    expect(item!.usual_price).toBe(2600);
+    expect(store.recent[0]!.saved_item_id).toBe('si-sardines');
+    expect(store.savedItems.find((i) => i.id === 'si-sardines')!.use_count).toBe(24);
+  });
+
+  it('leaves the library alone for a log that used no item', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.addTransaction({
+      amount: 2600, kind: 'expense', account_id: 'acc-cash', to_account_id: null,
+      category_id: 'cat-food', date: '2026-07-14', note: 'Ligo Sardines',
+    });
+    const item = await createSavedItemsRepo(dbRef.current!).getById('si-sardines');
+    expect(item).toMatchObject({ use_count: 23, last_price: 2600, last_used_at: '2026-07-12' });
+    expect(store.recent[0]!.saved_item_id).toBeNull();
+  });
+
+  it('does not re-bump when an existing log is edited (a correction is not a new use)', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    const txn = await store.addTransaction({
+      amount: 2800, kind: 'expense', account_id: 'acc-cash', to_account_id: null,
+      category_id: 'cat-food', date: '2026-07-14', note: 'Ligo Sardines',
+      saved_item_id: 'si-sardines',
+    });
+    await store.updateTransaction({ ...txn, amount: 3000 });
+
+    const item = await createSavedItemsRepo(dbRef.current!).getById('si-sardines');
+    expect(item!.use_count).toBe(24);
+    expect(item!.last_price).toBe(2800);
+    expect(store.recent[0]!.saved_item_id).toBe('si-sardines');
+  });
+
+  it('creates, edits and deletes a library item; an edit keeps its rank data', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.saveSavedItem({
+      id: 'si-new', name: 'Kopiko 3-in-1', description: null, usual_price: 900,
+      last_price: null, category_id: 'cat-food', kind: 'expense', use_count: 0, last_used_at: null,
+    });
+    expect(store.savedItems).toHaveLength(4);
+
+    await store.addTransaction({
+      amount: 900, kind: 'expense', account_id: 'acc-cash', to_account_id: null,
+      category_id: 'cat-food', date: '2026-07-14', note: 'Kopiko 3-in-1', saved_item_id: 'si-new',
+    });
+    const used = store.savedItems.find((i) => i.id === 'si-new')!;
+    expect(used.use_count).toBe(1);
+
+    await store.saveSavedItem({ ...used, name: 'Kopiko Brown' });
+    const renamed = store.savedItems.find((i) => i.id === 'si-new')!;
+    expect(renamed).toMatchObject({ name: 'Kopiko Brown', use_count: 1, last_price: 900 });
+
+    await store.deleteSavedItem('si-new');
+    expect(store.savedItems.map((i) => i.id)).not.toContain('si-new');
+  });
+
+  it('a log whose item has since been deleted still saves (the bump is a no-op)', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.deleteSavedItem('si-sardines');
+    const txn = await store.addTransaction({
+      amount: 2600, kind: 'expense', account_id: 'acc-cash', to_account_id: null,
+      category_id: 'cat-food', date: '2026-07-14', note: 'Ligo Sardines',
+      saved_item_id: 'si-sardines',
+    });
+    expect(txn.id).toBeTruthy();
+    expect((await createTransactionsRepo(dbRef.current!).list())).toHaveLength(4);
+  });
+
+  it('the library moves no money — E and cash_flow are untouched by a rename', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    const before = await snapshot();
+    await store.saveSavedItem({
+      ...store.savedItems.find((i) => i.id === 'si-sardines')!,
+      name: 'Ligo Sardines (big)',
+      usual_price: 9900,
+    });
+    const after = await snapshot();
+    expect(expenses(after.accounts, after.txns, MONTH)).toBe(expenses(before.accounts, before.txns, MONTH));
+    expect(cashFlow(after.accounts, after.txns, MONTH)).toBe(cashFlow(before.accounts, before.txns, MONTH));
   });
 });

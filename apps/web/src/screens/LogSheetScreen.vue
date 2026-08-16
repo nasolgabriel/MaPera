@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
 import { isSavingsAccount } from '../domain/stats';
+import { matchSavedItems, suggestedPrice } from '../domain/savedItems';
 import PaydaySplitSheet from '../components/PaydaySplitSheet.vue';
-import type { Transaction } from '../db/repositories/types';
+import type { SavedItem, Transaction } from '../db/repositories/types';
 
 type Kind = 'expense' | 'income' | 'saving';
 
@@ -24,6 +25,8 @@ const note = ref('');
 const saving = ref(false);
 // §7.3: after logging a NEW income, offer the payday split (never on edits, never forced).
 const splitTxn = ref<Transaction | null>(null);
+const savedItemId = ref<string | null>(null);
+const saveAsItem = ref(false);
 
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const centavos = computed(() => (amountDigits.value ? parseInt(amountDigits.value, 10) : 0));
@@ -32,6 +35,31 @@ const amountLabel = computed(() => peso.format(centavos.value / 100));
 const regularAccounts = computed(() => store.accounts.filter((a) => !a.archived && !isSavingsAccount(a)));
 const savingsAccounts = computed(() => store.accounts.filter((a) => !a.archived && isSavingsAccount(a)));
 const activeAccounts = computed(() => store.accounts.filter((a) => !a.archived));
+
+const suggestions = computed<SavedItem[]>(() =>
+  editing.value !== null || kind.value === 'saving' || savedItemId.value !== null
+    ? []
+    : matchSavedItems(store.savedItems, note.value),
+);
+
+const canSaveAsItem = computed(
+  () => !editing.value && kind.value !== 'saving' && savedItemId.value === null && note.value.trim() !== '',
+);
+
+function applySuggestion(item: SavedItem): void {
+  kind.value = item.kind;
+  categoryId.value = item.category_id;
+  amountDigits.value = String(suggestedPrice(item));
+  note.value = item.name;
+  savedItemId.value = item.id;
+  saveAsItem.value = false;
+}
+
+watch(note, (text) => {
+  if (savedItemId.value === null) return;
+  const linked = store.savedItems.find((i) => i.id === savedItemId.value);
+  if (linked && text !== linked.name) savedItemId.value = null;
+});
 
 const gridCategories = computed(() =>
   kind.value === 'saving' ? [] : store.categories.filter((c) => c.kind === kind.value).slice(0, 12),
@@ -88,7 +116,22 @@ async function save(): Promise<void> {
     if (editing.value) {
       await store.updateTransaction({ ...editing.value, ...fields });
     } else {
-      const txn = await store.addTransaction(fields);
+      let itemId = savedItemId.value;
+      if (itemId === null && saveAsItem.value && canSaveAsItem.value) {
+        itemId = crypto.randomUUID();
+        await store.saveSavedItem({
+          id: itemId,
+          name: note.value.trim(),
+          description: null,
+          usual_price: centavos.value,
+          last_price: null,
+          category_id: categoryId.value,
+          kind: fields.kind === 'income' ? 'income' : 'expense',
+          use_count: 0,
+          last_used_at: null,
+        });
+      }
+      const txn = await store.addTransaction({ ...fields, saved_item_id: itemId });
       if (txn.kind === 'income') {
         splitTxn.value = txn; // stay here — the split sheet takes over, Skip/Apply go home
         return;
@@ -179,6 +222,26 @@ onMounted(async () => {
     </section>
 
     <input v-model="note" type="text" class="note" placeholder="note…" />
+
+    <ul v-if="suggestions.length > 0" class="suggestions">
+      <li v-for="(item, i) in suggestions" :key="item.id">
+        <button :class="['suggestion', { top: i === 0 }]" @click="applySuggestion(item)">
+          <span class="s-left">
+            <span class="s-name">{{ item.name }}</span>
+            <span class="s-meta mono">
+              <template v-if="item.description">{{ item.description }} · </template>
+              used {{ item.use_count }}×
+            </span>
+          </span>
+          <span :class="['s-price', 'amount', { lead: i === 0 }]">{{ peso.format(suggestedPrice(item) / 100) }}</span>
+        </button>
+      </li>
+    </ul>
+
+    <label v-if="canSaveAsItem" class="as-item">
+      <input v-model="saveAsItem" type="checkbox" class="as-item-box" />
+      <span>save this log as an item</span>
+    </label>
 
     <div class="keypad">
       <button v-for="d in ['1','2','3','4','5','6','7','8','9']" :key="d" class="key" @click="tapKey(d)">{{ d }}</button>
@@ -318,6 +381,71 @@ onMounted(async () => {
 }
 .note::placeholder {
   color: var(--color-textDim);
+}
+.suggestions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.suggestions li + li .suggestion {
+  border-top: 1px solid var(--color-border);
+}
+.suggestion {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+}
+.suggestion.top {
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface));
+}
+.s-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.s-name {
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.s-meta {
+  font-size: 9px;
+  color: var(--color-textDim);
+}
+.s-price {
+  flex: none;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-textDim);
+}
+.s-price.lead {
+  color: var(--color-accentText);
+}
+.as-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 11px;
+  color: var(--color-text);
+}
+.as-item-box {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
 }
 .keypad {
   display: grid;

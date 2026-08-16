@@ -7,6 +7,7 @@ import { createAccountsRepo } from './db/repositories/accountsRepo'
 import { createGoalsRepo } from './db/repositories/goalsRepo'
 import { createInvestmentValuesRepo } from './db/repositories/investmentValuesRepo'
 import { createRecurringRepo } from './db/repositories/recurringRepo'
+import { createSavedItemsRepo } from './db/repositories/savedItemsRepo'
 import { createTransactionsRepo } from './db/repositories/transactionsRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
@@ -53,10 +54,10 @@ describe('app shell', () => {
     expect(wrapper.findAll('.banner .blank')).toHaveLength(4)
   })
 
-  it('has routes for all eight screens', () => {
+  it('has routes for all nine screens', () => {
     const names = router.getRoutes().map((r) => r.name)
     expect(names).toEqual(
-      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card']),
+      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items']),
     )
   })
 
@@ -234,5 +235,76 @@ describe('app shell', () => {
     await netTab.trigger('click')
     expect(wrapper.text()).toContain('Free cash flow')
     expect(wrapper.find('.month-bars').exists()).toBe(true)
+  })
+
+  it('suggests a saved item while typing, autofills it, and counts the use (B10)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/log')
+    await flushPromises()
+
+    await wrapper.find('.note').setValue('Lig')
+    await flushPromises()
+    const suggestions = wrapper.findAll('.suggestion')
+    expect(suggestions).toHaveLength(2)
+    expect(suggestions[0]!.text()).toContain('Ligo Sardines')
+    expect(suggestions[0]!.text()).toContain('used 23×')
+    expect(suggestions[1]!.text()).toContain('Ligaya Bakery pandesal')
+
+    await suggestions[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.amount-display').text()).toContain('26.00')
+    expect(wrapper.findAll('.suggestion')).toHaveLength(0)
+    expect((wrapper.find('.note').element as HTMLInputElement).value).toBe('Ligo Sardines')
+
+    await wrapper.find('.save').trigger('click')
+    await flushPromises()
+    const item = await createSavedItemsRepo(dbRef.current).getById('si-sardines')
+    expect(item).toMatchObject({ use_count: 24, last_price: 2600, last_used_at: '2026-07-14' })
+    const logged = (await createTransactionsRepo(dbRef.current).list()).find((t) => t.note === 'Ligo Sardines')
+    expect(logged!.saved_item_id).toBe('si-sardines')
+    expect(logged!.category_id).toBe('cat-food')
+  })
+
+  it('saves a fresh log as a library item when the toggle is on (B10)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/log')
+    await flushPromises()
+
+    await wrapper.find('.note').setValue('Kopiko 3-in-1')
+    await flushPromises()
+    expect(wrapper.findAll('.suggestion')).toHaveLength(0)
+    await wrapper.findAll('.key').find((k) => k.text() === '9')!.trigger('click')
+    await wrapper.findAll('.key').find((k) => k.text() === '00')!.trigger('click')
+    await wrapper.find('.as-item-box').setValue(true)
+    await wrapper.find('.save').trigger('click')
+    await flushPromises()
+
+    const items = await createSavedItemsRepo(dbRef.current).list()
+    const created = items.find((i) => i.name === 'Kopiko 3-in-1')!
+    expect(created).toMatchObject({ usual_price: 900, use_count: 1, last_price: 900 })
+  })
+
+  it('mounts the saved-items library from More (B10)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/more')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Saved items')
+
+    await router.push('/items')
+    await flushPromises()
+    expect(wrapper.findAll('.item')).toHaveLength(3)
+    expect(wrapper.text()).toContain('Ligo Sardines')
+    expect(wrapper.text()).toContain('155g easy-open')
+    expect(wrapper.text()).toContain('used 23×')
+
+    await wrapper.findAll('.item')[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.sheet[aria-label="Edit saved item"]').exists()).toBe(true)
   })
 })

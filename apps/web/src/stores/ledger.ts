@@ -9,6 +9,7 @@ import { createCategoriesRepo } from '../db/repositories/categoriesRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
 import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesRepo';
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
+import { createSavedItemsRepo } from '../db/repositories/savedItemsRepo';
 import { createSplitPresetsRepo } from '../db/repositories/splitPresetsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import {
@@ -33,16 +34,17 @@ import {
   investmentReturns, periodGrowth, returnPct,
 } from '../domain/investments';
 import { cardHealth } from '../domain/credit';
+import { touchSavedItem } from '../domain/savedItems';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
 import {
   accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
 } from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Budget, Category, Goal, InvestmentValue, Recurring, SplitPreset, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, Goal, InvestmentValue, Recurring, SavedItem, SplitPreset, Transaction } from '../db/repositories/types';
 import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
 
-/** Fields the log sheet supplies; the store fills id + the B10/B11 link columns.
+/** Fields the log sheet supplies; the store fills id + the B11 link column.
  *  recurring_id is optional so the B6 engine + logDue can link a posted due; default null. */
 export interface NewTransaction {
   amount: number; // integer centavos
@@ -53,6 +55,7 @@ export interface NewTransaction {
   date: string; // ISO YYYY-MM-DD
   note: string | null;
   recurring_id?: string | null;
+  saved_item_id?: string | null;
 }
 
 /** True once a loan has no scheduled payments left (§8.5). */
@@ -104,6 +107,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   const goals = ref<Goal[]>([]);
   const recurring = ref<Recurring[]>([]); // §7.3/§7.5 auto-transfers + dues
   const investmentValues = ref<InvestmentValue[]>([]); // §7.7 logged market-value snapshots
+  const savedItems = ref<SavedItem[]>([]);
   const today = ref(todayISO());
   const liveMonth = computed(() => today.value.slice(0, 7));
   const month = ref(liveMonth.value); // §6.1 month switcher moves this
@@ -350,6 +354,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     goals.value = await createGoalsRepo(db).list();
     recurring.value = await createRecurringRepo(db).list();
     investmentValues.value = await createInvestmentValuesRepo(db).list();
+    savedItems.value = await createSavedItemsRepo(db).list();
     await refreshTransactions(db);
     await runRecurring(); // §7.3 catch-up: post any auto-transfers/dues that came due while away
     loaded.value = true;
@@ -361,16 +366,17 @@ export const useLedgerStore = defineStore('ledger', () => {
 
   async function addTransaction(input: NewTransaction): Promise<Transaction> {
     const db = await getDb();
-    const { recurring_id = null, ...fields } = input;
+    const { recurring_id = null, saved_item_id = null, ...fields } = input;
     const txn: Transaction = {
       id: crypto.randomUUID(),
       discount_rule_id: null,
       recurring_id, // §7.5: set by the recurring engine + logDue, else null
-      saved_item_id: null,
+      saved_item_id,
       ...fields,
     };
     await createTransactionsRepo(db).create(txn);
     await refreshTransactions(db);
+    if (saved_item_id !== null) await recordSavedItemUse(saved_item_id, txn.amount, txn.date);
     return txn;
   }
 
@@ -498,6 +504,33 @@ export const useLedgerStore = defineStore('ledger', () => {
     investmentValues.value = await repo.list();
   }
 
+  async function saveSavedItem(item: SavedItem): Promise<void> {
+    const db = await getDb();
+    const repo = createSavedItemsRepo(db);
+    if (await repo.getById(item.id)) {
+      await repo.update(item);
+    } else {
+      await repo.create(item);
+    }
+    savedItems.value = await repo.list();
+  }
+
+  async function deleteSavedItem(id: string): Promise<void> {
+    const db = await getDb();
+    const repo = createSavedItemsRepo(db);
+    await repo.remove(id);
+    savedItems.value = await repo.list();
+  }
+
+  async function recordSavedItemUse(id: string, priceCentavos: number, atISO: string): Promise<void> {
+    const db = await getDb();
+    const repo = createSavedItemsRepo(db);
+    const item = await repo.getById(id);
+    if (item === null) return;
+    await repo.update(touchSavedItem(item, priceCentavos, atISO));
+    savedItems.value = await repo.list();
+  }
+
   /** §7.3 named presets. Buckets stored as JSON-as-text (parse with parsePresetBuckets). */
   async function savePreset(name: string, buckets: SplitBucket[]): Promise<void> {
     const db = await getDb();
@@ -567,7 +600,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   return {
-    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, month, today, liveMonth, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, savedItems, month, today, liveMonth, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
@@ -579,5 +612,6 @@ export const useLedgerStore = defineStore('ledger', () => {
     load, refreshToday, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
     addToGoal, saveGoal, deleteGoal, logInvestmentValue, runRecurring, logDue,
+    saveSavedItem, deleteSavedItem, recordSavedItemUse,
   };
 });
