@@ -12,6 +12,7 @@ import { cashFlow, expenses, totalBalance, sNet } from '../domain/stats';
 import type { Goal, Recurring } from '../db/repositories/types';
 import type { RecurringTemplate } from '../domain/dues';
 import { parsePresetBuckets } from '../domain/split';
+import { pinSeedClock } from '../test/seedClock';
 
 // Point the store's getDb() at a fresh in-memory driver per test.
 const { dbRef } = vi.hoisted(() => ({ dbRef: { current: null as SqlDriver | null } }));
@@ -20,6 +21,8 @@ vi.mock('../db', () => ({ getDb: async () => dbRef.current }));
 import { useLedgerStore } from './ledger';
 
 const MONTH = '2026-07';
+
+pinSeedClock();
 
 async function snapshot() {
   const accounts = await createAccountsRepo(dbRef.current!).list();
@@ -639,5 +642,55 @@ describe('budget home calendar + graph wiring (E2)', () => {
     expect(store.previousWeekTotal).toBe(0);
     expect(store.weekChange).toBeNull(); // no division by zero
     expect(store.weekAverage).toBe(0);
+  });
+});
+
+describe('reactive calendar day (month rollover)', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('re-derives the live month when the day advances, and carries the live view with it', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.liveMonth).toBe(MONTH);
+    expect(store.statsMonths[5]).toBe(MONTH);
+
+    store.today = '2026-08-01';
+    await settle();
+
+    expect(store.liveMonth).toBe('2026-08');
+    expect(store.statsMonths[5]).toBe('2026-08');
+    expect(store.savingsTrend[5]!.partial).toBe(true);
+    expect(store.month).toBe('2026-08');
+    expect(store.budgets).toHaveLength(0);
+  });
+
+  it('refreshToday() picks up a real clock advance (the App wake path)', async () => {
+    const store = useLedgerStore();
+    store.month = MONTH;
+    await store.load();
+    expect(store.statsMonths[5]).toBe(MONTH);
+
+    vi.setSystemTime(new Date('2026-08-01T09:00:00'));
+    expect(store.statsMonths[5]).toBe(MONTH);
+
+    store.refreshToday();
+    await settle();
+
+    expect(store.today).toBe('2026-08-01');
+    expect(store.liveMonth).toBe('2026-08');
+    expect(store.statsMonths[5]).toBe('2026-08');
+  });
+
+  it('leaves a deliberately-switched month alone across a rollover', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.setMonth('2026-05');
+
+    store.today = '2026-08-01';
+    await settle();
+
+    expect(store.liveMonth).toBe('2026-08');
+    expect(store.month).toBe('2026-05');
   });
 });

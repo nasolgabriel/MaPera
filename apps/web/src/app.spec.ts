@@ -11,6 +11,7 @@ import { createTransactionsRepo } from './db/repositories/transactionsRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
 import { router } from './router'
+import { pinSeedClock } from './test/seedClock'
 
 // Screens call store.load() → getDb() on mount; point it at a fresh in-memory driver
 // so the smoke tests never touch the real jeep-sqlite/jsdom path.
@@ -18,6 +19,8 @@ const { dbRef } = vi.hoisted(() => ({ dbRef: { current: null as SqlDriver | null
 vi.mock('./db', () => ({ getDb: async () => dbRef.current }))
 
 describe('app shell', () => {
+  pinSeedClock()
+
   it('mounts and renders the Budget home route', async () => {
     dbRef.current = await createSqlJsDriver()
     await seed(dbRef.current)

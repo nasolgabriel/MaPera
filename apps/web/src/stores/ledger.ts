@@ -1,7 +1,7 @@
 // Ledger store — wires the transaction/account/category/budget repos to reactive state.
 // No money math here (that's domain/).
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { getDb } from '../db';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
@@ -82,10 +82,6 @@ function completedChange(points: SeriesPoint[]): number | null {
   return momChange(done[done.length - 1]!, done[done.length - 2]!);
 }
 
-function currentMonth(): string {
-  return todayISO().slice(0, 7);
-}
-
 /** 'YYYY-MM' key `delta` months from `month` (delta may be negative). */
 function shiftMonthKey(month: string, delta: number): string {
   const [y, m] = month.split('-').map(Number);
@@ -108,8 +104,18 @@ export const useLedgerStore = defineStore('ledger', () => {
   const goals = ref<Goal[]>([]);
   const recurring = ref<Recurring[]>([]); // §7.3/§7.5 auto-transfers + dues
   const investmentValues = ref<InvestmentValue[]>([]); // §7.7 logged market-value snapshots
-  const month = ref(currentMonth()); // §6.1 month switcher moves this
+  const today = ref(todayISO());
+  const liveMonth = computed(() => today.value.slice(0, 7));
+  const month = ref(liveMonth.value); // §6.1 month switcher moves this
   const loaded = ref(false);
+
+  watch(liveMonth, (now, was) => {
+    if (month.value === was) void setMonth(now);
+  });
+
+  function refreshToday(): void {
+    today.value = todayISO();
+  }
 
   const recent = computed(() => transactions.value.slice(0, RECENTS_LIMIT));
 
@@ -156,10 +162,10 @@ export const useLedgerStore = defineStore('ledger', () => {
       ),
   );
   /** Days left in the visible month incl. today; 0 when the month is over. */
-  const daysLeft = computed(() => daysLeftInMonth(todayISO(), month.value));
+  const daysLeft = computed(() => daysLeftInMonth(today.value, month.value));
   /** daily_safe_spend(t) (§8.4) — only meaningful for the real current month, else null. */
   const safeSpendToday = computed(() =>
-    month.value === currentMonth()
+    month.value === liveMonth.value
       ? dailySafeSpend(accounts.value, transactions.value, budgets.value, month.value, daysLeft.value)
       : null,
   );
@@ -171,12 +177,12 @@ export const useLedgerStore = defineStore('ledger', () => {
   /** Σ cap spread over the month — the per-day "over cap" line; null when no caps (§8.7). */
   const dayCap = computed(() => dailyCapAverage(capTotal.value, month.value));
   /** Monday-start grid cells for the visible month, padded to whole weeks. */
-  const monthCells = computed(() => monthGrid(month.value, todayISO(), daySpends.value, dayCap.value));
+  const monthCells = computed(() => monthGrid(month.value, today.value, daySpends.value, dayCap.value));
 
   /** Graph window ends today in the live month, else on the visible month's last day. */
   const weekEnd = computed(() =>
-    month.value === currentMonth()
-      ? todayISO()
+    month.value === liveMonth.value
+      ? today.value
       : `${month.value}-${String(daysInMonth(month.value)).padStart(2, '0')}`,
   );
   /** Spend map covering both compared weeks (crosses month boundaries — hence the range query). */
@@ -207,19 +213,19 @@ export const useLedgerStore = defineStore('ledger', () => {
    *  the live month regardless of the Budget-home month switcher — the savings screen has none. */
   const savingsRateInfo = computed(() =>
     savingsRate(
-      sNet(accounts.value, transactions.value, currentMonth()),
-      income(accounts.value, transactions.value, currentMonth()),
+      sNet(accounts.value, transactions.value, liveMonth.value),
+      income(accounts.value, transactions.value, liveMonth.value),
     ),
   );
   /** avg_contribution over the last 3 income months (§8.2) — feeds every goal projection. */
   const goalAvgContribution = computed(() =>
-    avgContribution(accounts.value, transactions.value, currentMonth()),
+    avgContribution(accounts.value, transactions.value, liveMonth.value),
   );
   /** projected finish month ('YYYY-MM' | null) per goal (§8.2). */
   const goalProjections = computed(
     () =>
       new Map(
-        goals.value.map((g) => [g.id, projectedGoalMonth(g, goalAvgContribution.value, todayISO())]),
+        goals.value.map((g) => [g.id, projectedGoalMonth(g, goalAvgContribution.value, today.value)]),
       ),
   );
 
@@ -295,22 +301,22 @@ export const useLedgerStore = defineStore('ledger', () => {
   // ── B7 Statistics (§6.4 / §8.7) — every series re-derived from raw txns via domain/statistics ──
 
   /** The rolling 6-month window ending at the live month (§6.4). */
-  const statsMonths = computed(() => monthKeys(currentMonth(), STATS_WINDOW));
+  const statsMonths = computed(() => monthKeys(liveMonth.value, STATS_WINDOW));
   /** Cumulative total_saved per month — the Savings-tab hero line (§6.4). */
   const savingsTrend = computed(() =>
-    savingsSeries(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+    savingsSeries(accounts.value, transactions.value, statsMonths.value, liveMonth.value),
   );
   /** Dashed comparison for the savings line (rolling avg, or year-ago once 13+ months — math-doc §5). */
   const savingsTrendComparison = computed(() =>
-    savingsComparison(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+    savingsComparison(accounts.value, transactions.value, statsMonths.value, liveMonth.value),
   );
   /** E(t) per month — spend-by-month bars (§6.4). */
   const expenseTrend = computed(() =>
-    expenseSeries(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+    expenseSeries(accounts.value, transactions.value, statsMonths.value, liveMonth.value),
   );
   /** free_cash_flow(t) per month — the Net tab (§6.4), may be negative. */
   const netTrend = computed(() =>
-    netSeries(accounts.value, transactions.value, statsMonths.value, currentMonth()),
+    netSeries(accounts.value, transactions.value, statsMonths.value, liveMonth.value),
   );
   /** Chart headline changes — completed months only (partial live month excluded, §8.7). */
   const savingsTrendChange = computed(() => completedChange(savingsTrend.value));
@@ -319,7 +325,7 @@ export const useLedgerStore = defineStore('ledger', () => {
 
   /** savings_rate last month (§8.2) — the rate card's ▲/▼-vs-last-month baseline (§7.4). */
   const savingsRatePrev = computed(() => {
-    const prev = monthKeys(currentMonth(), 2)[0]!;
+    const prev = monthKeys(liveMonth.value, 2)[0]!;
     return savingsRate(
       sNet(accounts.value, transactions.value, prev),
       income(accounts.value, transactions.value, prev),
@@ -445,7 +451,7 @@ export const useLedgerStore = defineStore('ledger', () => {
         account_id: sourceAccountId,
         to_account_id: goal.account_id,
         category_id: null,
-        date: todayISO(),
+        date: today.value,
         note: `Goal: ${goal.name}`,
       });
     }
@@ -477,7 +483,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   async function logInvestmentValue(
     accountId: string,
     valueCentavos: number,
-    valueMonth = currentMonth(),
+    valueMonth = liveMonth.value,
   ): Promise<void> {
     const db = await getDb();
     const repo = createInvestmentValuesRepo(db);
@@ -525,8 +531,8 @@ export const useLedgerStore = defineStore('ledger', () => {
   /** §7.3 recurring engine — runs on app-open (from load). Posts every auto_post recurring
    *  whose next_due has arrived, catching up ALL missed cycles, rolling the schedule forward
    *  and counting loans down. auto_post=false rows are left as dues for the user to "Log it".
-   *  `today` is injectable for tests; production uses the local calendar day. */
-  async function runRecurring(today = todayISO()): Promise<void> {
+   *  `asOf` is injectable for tests; production uses the store's calendar day. */
+  async function runRecurring(asOf = today.value): Promise<void> {
     const db = await getDb();
     const repo = createRecurringRepo(db);
     let posted = false;
@@ -535,7 +541,7 @@ export const useLedgerStore = defineStore('ledger', () => {
       const tmpl = parseRecurringTemplate(r.template);
       if (tmpl === null) continue;
       let current = r;
-      while (current.next_due <= today && !loanExhausted(current)) {
+      while (current.next_due <= asOf && !loanExhausted(current)) {
         await postRecurring(current, tmpl);
         posted = true;
         current = advanceRecurring(current, tmpl);
@@ -561,7 +567,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   return {
-    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, month, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, month, today, liveMonth, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
@@ -570,7 +576,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
     statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
     savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,
-    load, addTransaction, updateTransaction, deleteTransaction, setMonth,
+    load, refreshToday, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
     addToGoal, saveGoal, deleteGoal, logInvestmentValue, runRecurring, logDue,
   };

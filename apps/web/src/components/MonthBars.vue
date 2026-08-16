@@ -137,7 +137,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
           rx="1.5"
           class="bar"
           :class="{ negative: b.negative, partial: b.partial, selected: selected?.index === i }"
-          :style="{ transitionDelay: revealed ? `${i * 35}ms` : '0ms' }"
+          :style="{ '--stagger': `${i * 35}ms` }"
         />
       </svg>
 
@@ -219,7 +219,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
   transform-origin: bottom; /* wipe up from the baseline */
   transition:
     /* standard, not spring: a bar overshooting its own value reads as a wrong figure (§5) */
-    transform var(--dur-reveal) var(--ease-standard),
+    transform var(--dur-reveal) var(--ease-standard) var(--stagger, 0ms),
     fill var(--dur-move) var(--ease-standard);
 }
 .host.revealed .bar {

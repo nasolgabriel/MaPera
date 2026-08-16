@@ -52,11 +52,8 @@ let bloomedThisPress = false;
 
 const gaugeStyle = computed(() => {
   const pct = (store.hubGauge ?? 0) * 100;
-  // Unspent remainder is a washed-out accent track, not --color-border: the border gray
-  // vanishes against the page background and the ring looks broken instead of partial.
-  const track = 'color-mix(in srgb, var(--color-accent) 30%, var(--color-surface))';
   return {
-    background: `conic-gradient(var(--color-accent) 0 ${pct}%, ${track} ${pct}% 100%)`,
+    background: `conic-gradient(var(--color-accent) 0 ${pct}%, transparent ${pct}% 100%)`,
   };
 });
 
@@ -171,7 +168,9 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <div class="hub-wrap">
-      <div class="gauge" :style="gaugeStyle" aria-hidden="true"></div>
+      <div class="gauge" aria-hidden="true">
+        <div class="gauge-arc" :style="gaugeStyle"></div>
+      </div>
       <button
         class="hub"
         :class="{ open }"
@@ -339,6 +338,19 @@ onBeforeUnmount(() => {
   inset: -3px;
   border-radius: 50%;
   box-shadow: 0 4px 12px rgba(30, 58, 110, 0.35);
+}
+.gauge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--color-accent);
+  opacity: 0.28;
+}
+.gauge-arc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
 }
 .hub {
   position: absolute;

@@ -255,13 +255,6 @@ const ariaText = computed(() => tooltipText.value || props.label);
   vector-effect: non-scaling-stroke;
   transition: transform var(--dur-move) var(--ease-standard);
 }
-/* Draw the completed line in on reveal by uncovering it left-to-right.
-   NOT a stroke-dasharray/pathLength wipe: .main is non-scaling-stroke and the plot is
-   preserveAspectRatio="none", so the dash resolves in device space against a path the
-   viewBox has stretched — pathLength's normalization doesn't apply and the line stays
-   permanently cut short of its last point. Clipping is independent of both.
-   The 4px bleed keeps the stroke and its round caps off the fill-box edges (percentages
-   would collapse on a perfectly flat series, whose bounding box has no height). */
 .draw {
   clip-path: inset(-4px calc(100% + 4px) -4px -4px);
   transition: clip-path var(--dur-reveal) var(--ease-standard);

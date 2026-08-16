@@ -57,21 +57,18 @@ describe('chart reveal', () => {
     vi.useRealTimers();
   });
 
-  // The store loads after the Statistics screen mounts, so a chart's first render has no
-  // points. Revealing then would leave the bars — created later — already at their end
-  // state with nothing to transition from, so the wipe must wait for the data.
   it('waits for data, then reveals a frame after the bars exist', async () => {
-    vi.useFakeTimers(); // jsdom's requestAnimationFrame is timer-backed
+    vi.useFakeTimers();
     const wrapper = mount(MonthBars, { props: { points: [], label: 'Spend by month', changePct: null } });
     expect(wrapper.find('.host').classes()).not.toContain('revealed');
 
     vi.advanceTimersByTime(100);
     await wrapper.vm.$nextTick();
-    expect(wrapper.find('.host').classes()).not.toContain('revealed'); // no bars → no reveal
+    expect(wrapper.find('.host').classes()).not.toContain('revealed');
 
     await wrapper.setProps({ points });
     expect(wrapper.findAll('.bar').length).toBe(3);
-    expect(wrapper.find('.host').classes()).not.toContain('revealed'); // from-state must paint first
+    expect(wrapper.find('.host').classes()).not.toContain('revealed');
 
     vi.advanceTimersByTime(100);
     await wrapper.vm.$nextTick();
