@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import LineChart from './components/LineChart.vue';
 import MonthBars from './components/MonthBars.vue';
@@ -49,5 +49,32 @@ describe('MonthBars interactivity (E3)', () => {
     expect(wrapper.find('.tooltip').text()).toContain('Jun 2026');
     expect(wrapper.find('.tooltip').text()).toContain('−₱'); // negative month keeps the sign
     expect(wrapper.find('.bar.selected').exists()).toBe(true);
+  });
+});
+
+describe('chart reveal', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // The store loads after the Statistics screen mounts, so a chart's first render has no
+  // points. Revealing then would leave the bars — created later — already at their end
+  // state with nothing to transition from, so the wipe must wait for the data.
+  it('waits for data, then reveals a frame after the bars exist', async () => {
+    vi.useFakeTimers(); // jsdom's requestAnimationFrame is timer-backed
+    const wrapper = mount(MonthBars, { props: { points: [], label: 'Spend by month', changePct: null } });
+    expect(wrapper.find('.host').classes()).not.toContain('revealed');
+
+    vi.advanceTimersByTime(100);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.host').classes()).not.toContain('revealed'); // no bars → no reveal
+
+    await wrapper.setProps({ points });
+    expect(wrapper.findAll('.bar').length).toBe(3);
+    expect(wrapper.find('.host').classes()).not.toContain('revealed'); // from-state must paint first
+
+    vi.advanceTimersByTime(100);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.host').classes()).toContain('revealed');
   });
 });

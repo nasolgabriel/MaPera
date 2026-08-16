@@ -3,8 +3,9 @@
 // Presentation only: the series, comparison and headline % arrive as props (all money
 // math is done in domain/statistics + the store, per §4). The live partial month is
 // drawn as a dashed segment with a hollow dot and is excluded from the headline change.
-import { computed, onMounted, ref } from 'vue';
-import { prefersReducedMotion, useChartScrub } from '../composables/useChartScrub';
+import { computed } from 'vue';
+import { useChartScrub } from '../composables/useChartScrub';
+import { useReveal } from '../composables/useReveal';
 import ChartTooltip from './ChartTooltip.vue';
 import type { SeriesPoint } from '../domain/statistics';
 
@@ -80,16 +81,7 @@ const changeLabel = computed(() => {
 const scrub = useChartScrub(() => props.points.length);
 
 // Reveal: draw the line in as the panel settles (instant under reduced motion).
-const revealed = ref(false);
-onMounted(() => {
-  if (prefersReducedMotion()) {
-    revealed.value = true;
-    return;
-  }
-  requestAnimationFrame(() => {
-    revealed.value = true;
-  });
-});
+const revealed = useReveal(() => props.points.length > 0);
 
 function pesoWhole(centavos: number): string {
   const sign = centavos < 0 ? '−' : '';

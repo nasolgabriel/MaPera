@@ -4,8 +4,9 @@
 // the Net tab (free_cash_flow, which can go negative) shares one component with the
 // positive-only expense bars. The live partial month is drawn outlined and excluded from
 // the headline change (§8.7).
-import { computed, onMounted, ref } from 'vue';
-import { prefersReducedMotion, useChartScrub } from '../composables/useChartScrub';
+import { computed } from 'vue';
+import { useChartScrub } from '../composables/useChartScrub';
+import { useReveal } from '../composables/useReveal';
 import ChartTooltip from './ChartTooltip.vue';
 import type { SeriesPoint } from '../domain/statistics';
 
@@ -61,17 +62,8 @@ const changeLabel = computed(() => {
 // ── E3 scrub + tooltip ──
 const scrub = useChartScrub(() => props.points.length);
 
-// Reveal: bars grow up from the baseline, staggered (instant under reduced motion).
-const revealed = ref(false);
-onMounted(() => {
-  if (prefersReducedMotion()) {
-    revealed.value = true;
-    return;
-  }
-  requestAnimationFrame(() => {
-    revealed.value = true;
-  });
-});
+// Reveal: bars wipe up from the baseline, staggered (instant under reduced motion).
+const revealed = useReveal(() => props.points.length > 0);
 
 function pesoWhole(centavos: number): string {
   const sign = centavos < 0 ? '−' : '';
@@ -224,9 +216,10 @@ const ariaText = computed(() => tooltipText.value || props.label);
   fill: var(--color-primary);
   transform: scaleY(0);
   transform-box: fill-box;
-  transform-origin: bottom; /* grow up from the baseline */
+  transform-origin: bottom; /* wipe up from the baseline */
   transition:
-    transform var(--dur-reveal) var(--ease-spring),
+    /* standard, not spring: a bar overshooting its own value reads as a wrong figure (§5) */
+    transform var(--dur-reveal) var(--ease-standard),
     fill var(--dur-move) var(--ease-standard);
 }
 .host.revealed .bar {
@@ -237,7 +230,7 @@ const ariaText = computed(() => tooltipText.value || props.label);
 }
 .bar.negative {
   fill: #b3282d;
-  transform-origin: top; /* negatives hang from the zero line — grow downward */
+  transform-origin: top; /* negatives hang from the zero line — wipe downward, away from zero */
 }
 .bar.selected.negative {
   fill: var(--color-accent);
