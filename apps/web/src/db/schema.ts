@@ -95,4 +95,10 @@ CREATE TABLE IF NOT EXISTS investment_values (
   month TEXT NOT NULL,
   value INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS discount_logs (
+  id TEXT PRIMARY KEY,
+  transaction_id TEXT NOT NULL REFERENCES transactions(id),
+  base_amount INTEGER NOT NULL
+);
 `;

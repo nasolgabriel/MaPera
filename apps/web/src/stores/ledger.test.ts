@@ -8,6 +8,7 @@ import { createGoalsRepo } from '../db/repositories/goalsRepo';
 import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesRepo';
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createSavedItemsRepo } from '../db/repositories/savedItemsRepo';
+import { createDiscountLogsRepo } from '../db/repositories/discountLogsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import { cashFlow, expenses, totalBalance, sNet } from '../domain/stats';
 import type { Goal, Recurring } from '../db/repositories/types';
@@ -796,5 +797,90 @@ describe('saved items (B10 · §7.6)', () => {
     const after = await snapshot();
     expect(expenses(after.accounts, after.txns, MONTH)).toBe(expenses(before.accounts, before.txns, MONTH));
     expect(cashFlow(after.accounts, after.txns, MONTH)).toBe(cashFlow(before.accounts, before.txns, MONTH));
+  });
+});
+
+describe('discounts (B11 · §6.5 / §7.9)', () => {
+  it('ships the bundled fare rules without a repo', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.discountRulesVersion).toBe(1);
+    expect(store.discountRules).toHaveLength(6);
+    expect(store.discountLogs).toEqual([]);
+    expect(store.discountSavedThisYear).toBe(0);
+  });
+
+  it('logs a discounted fare as an expense at the price actually paid', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    const before = await snapshot();
+
+    const txn = await store.logDiscountedFare({
+      ruleId: 'fare-jeepney-student',
+      baseCentavos: 1500,
+      discountedCentavos: 1200,
+      accountId: 'acc-cash',
+      categoryId: 'cat-transport',
+      date: '2026-07-14',
+      note: 'student fare',
+    });
+
+    expect(txn.amount).toBe(1200);
+    expect(txn.kind).toBe('expense');
+    expect(txn.discount_rule_id).toBe('fare-jeepney-student');
+
+    const after = await snapshot();
+    expect(expenses(after.accounts, after.txns, MONTH)).toBe(
+      expenses(before.accounts, before.txns, MONTH) + 1200,
+    );
+    expect(cashFlow(after.accounts, after.txns, MONTH)).toBe(
+      cashFlow(before.accounts, before.txns, MONTH) - 1200,
+    );
+  });
+
+  it('records the base price so the yearly counter is exact, not reverse-engineered', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.logDiscountedFare({
+      ruleId: 'fare-jeepney-student', baseCentavos: 1500, discountedCentavos: 1200,
+      accountId: 'acc-cash', categoryId: 'cat-transport', date: '2026-07-14', note: null,
+    });
+    await store.logDiscountedFare({
+      ruleId: 'fare-bus-train-senior', baseCentavos: 1300, discountedCentavos: 1050,
+      accountId: 'acc-cash', categoryId: 'cat-transport', date: '2026-07-15', note: null,
+    });
+
+    const logs = await createDiscountLogsRepo(dbRef.current!).list();
+    expect(logs.map((l) => l.base_amount).sort()).toEqual([1300, 1500]);
+    expect(store.discountSavedThisYear).toBe(550);
+  });
+
+  it('counts only the current year', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.logDiscountedFare({
+      ruleId: 'fare-jeepney-student', baseCentavos: 1500, discountedCentavos: 1200,
+      accountId: 'acc-cash', categoryId: 'cat-transport', date: '2025-12-31', note: null,
+    });
+    expect(store.discountSavedThisYear).toBe(0);
+
+    await store.logDiscountedFare({
+      ruleId: 'fare-jeepney-student', baseCentavos: 1500, discountedCentavos: 1200,
+      accountId: 'acc-cash', categoryId: 'cat-transport', date: '2026-01-02', note: null,
+    });
+    expect(store.discountSavedThisYear).toBe(300);
+  });
+
+  it('deleting the transaction drops it out of the counter (invariant 4)', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    const txn = await store.logDiscountedFare({
+      ruleId: 'fare-jeepney-student', baseCentavos: 1500, discountedCentavos: 1200,
+      accountId: 'acc-cash', categoryId: 'cat-transport', date: '2026-07-14', note: null,
+    });
+    expect(store.discountSavedThisYear).toBe(300);
+
+    await store.deleteTransaction(txn.id);
+    expect(store.discountSavedThisYear).toBe(0);
   });
 });

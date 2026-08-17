@@ -8,6 +8,7 @@ import { createGoalsRepo } from './db/repositories/goalsRepo'
 import { createInvestmentValuesRepo } from './db/repositories/investmentValuesRepo'
 import { createRecurringRepo } from './db/repositories/recurringRepo'
 import { createSavedItemsRepo } from './db/repositories/savedItemsRepo'
+import { createDiscountLogsRepo } from './db/repositories/discountLogsRepo'
 import { createTransactionsRepo } from './db/repositories/transactionsRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
@@ -54,10 +55,10 @@ describe('app shell', () => {
     expect(wrapper.findAll('.banner .blank')).toHaveLength(4)
   })
 
-  it('has routes for all nine screens', () => {
+  it('has routes for all ten screens', () => {
     const names = router.getRoutes().map((r) => r.name)
     expect(names).toEqual(
-      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items']),
+      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items', 'discounts']),
     )
   })
 
@@ -306,5 +307,55 @@ describe('app shell', () => {
     await wrapper.findAll('.item')[0]!.trigger('click')
     await flushPromises()
     expect(wrapper.find('.sheet[aria-label="Edit saved item"]').exists()).toBe(true)
+  })
+
+  it('discounts a fare, logs it, and counts the yearly saving (B11)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/more')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Fare discounts')
+
+    await router.push('/discounts')
+    await flushPromises()
+    expect(wrapper.findAll('.role')).toHaveLength(3)
+    expect(wrapper.findAll('.mode')).toHaveLength(2)
+
+    await wrapper.find('.base-input').setValue('15')
+    await flushPromises()
+    const card = wrapper.find('.result')
+    expect(card.find('.rule-line').text()).toBe('student fare · 20% off · rounds to ₱0.25')
+    expect(card.find('.discounted').text()).toContain('12.00')
+    expect(card.find('.kept').text()).toContain('3.00')
+
+    await wrapper.find('.log-btn').trigger('click')
+    await flushPromises()
+
+    const logged = (await createTransactionsRepo(dbRef.current).list()).find(
+      (t) => t.discount_rule_id === 'fare-jeepney-student',
+    )
+    expect(logged!.amount).toBe(1200)
+    expect(logged!.kind).toBe('expense')
+    const logs = await createDiscountLogsRepo(dbRef.current).list()
+    expect(logs[0]!.base_amount).toBe(1500)
+    expect(wrapper.find('.yearly').text()).toBe('saved ₱ 3 with discounts this year')
+  })
+
+  it('switches role and mode to a different rule (B11)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/discounts')
+    await flushPromises()
+
+    await wrapper.findAll('.role').find((b) => b.text() === 'Senior')!.trigger('click')
+    await wrapper.findAll('.mode').find((b) => b.text() === 'Bus / Train')!.trigger('click')
+    await wrapper.find('.base-input').setValue('13')
+    await flushPromises()
+
+    expect(wrapper.find('.rule-line').text()).toContain('senior fare')
+    expect(wrapper.find('.discounted').text()).toContain('10.50')
+    expect(wrapper.find('.kept').text()).toContain('2.50')
   })
 })

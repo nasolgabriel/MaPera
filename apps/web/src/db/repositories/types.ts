@@ -94,3 +94,9 @@ export interface InvestmentValue {
   /** The account's market value at that month, integer centavos (§7.7). */
   value: number;
 }
+
+export interface DiscountLog {
+  id: string;
+  transaction_id: string;
+  base_amount: number;
+}

@@ -11,6 +11,7 @@ import { createSavedItemsRepo } from './savedItemsRepo';
 import { createSavingPeriodsRepo } from './savingPeriodsRepo';
 import { createSplitPresetsRepo } from './splitPresetsRepo';
 import { createInvestmentValuesRepo } from './investmentValuesRepo';
+import { createDiscountLogsRepo } from './discountLogsRepo';
 import { seed } from '../seed';
 
 let db: SqlDriver;
@@ -203,5 +204,27 @@ describe('seed', () => {
     const income = transactions.filter((t) => t.kind === 'income').reduce((sum, t) => sum + t.amount, 0);
     const expense = transactions.filter((t) => t.kind === 'expense').reduce((sum, t) => sum + t.amount, 0);
     expect(income - expense).toBe(650000); // cash_flow(t) = +₱6,500.00 in centavos
+  });
+});
+
+describe('discountLogsRepo', () => {
+  it('round-trips create/get/delete against a transaction', async () => {
+    const accounts = createAccountsRepo(db);
+    await accounts.create({
+      id: 'a1', name: 'Cash', type: 'cash', starting_balance: 0, essence_color: '#1E3A6E',
+      archived: false, credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+    await createTransactionsRepo(db).create({
+      id: 't1', amount: 1200, kind: 'expense', account_id: 'a1', to_account_id: null,
+      category_id: null, date: '2026-07-14', note: 'student fare',
+      discount_rule_id: 'fare-jeepney-student', recurring_id: null, saved_item_id: null,
+    });
+
+    const repo = createDiscountLogsRepo(db);
+    await repo.create({ id: 'd1', transaction_id: 't1', base_amount: 1500 });
+    expect(await repo.getById('d1')).toMatchObject({ transaction_id: 't1', base_amount: 1500 });
+    expect(await repo.list()).toHaveLength(1);
+    await repo.remove('d1');
+    expect(await repo.getById('d1')).toBeNull();
   });
 });

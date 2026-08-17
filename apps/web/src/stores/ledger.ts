@@ -6,6 +6,7 @@ import { getDb } from '../db';
 import { createAccountsRepo } from '../db/repositories/accountsRepo';
 import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
 import { createCategoriesRepo } from '../db/repositories/categoriesRepo';
+import { createDiscountLogsRepo } from '../db/repositories/discountLogsRepo';
 import { createGoalsRepo } from '../db/repositories/goalsRepo';
 import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesRepo';
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
@@ -35,12 +36,15 @@ import {
 } from '../domain/investments';
 import { cardHealth } from '../domain/credit';
 import { touchSavedItem } from '../domain/savedItems';
+import { discountSaved } from '../domain/discounts';
+import type { DiscountRule, DiscountRuleSet } from '../domain/discounts';
+import discountRulesFile from '../data/discountRules.json';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
 import {
   accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
 } from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Budget, Category, Goal, InvestmentValue, Recurring, SavedItem, SplitPreset, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, DiscountLog, Goal, InvestmentValue, Recurring, SavedItem, SplitPreset, Transaction } from '../db/repositories/types';
 import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
 
@@ -56,6 +60,7 @@ export interface NewTransaction {
   note: string | null;
   recurring_id?: string | null;
   saved_item_id?: string | null;
+  discount_rule_id?: string | null;
 }
 
 /** True once a loan has no scheduled payments left (§8.5). */
@@ -108,6 +113,9 @@ export const useLedgerStore = defineStore('ledger', () => {
   const recurring = ref<Recurring[]>([]); // §7.3/§7.5 auto-transfers + dues
   const investmentValues = ref<InvestmentValue[]>([]); // §7.7 logged market-value snapshots
   const savedItems = ref<SavedItem[]>([]);
+  const discountLogs = ref<DiscountLog[]>([]);
+  const discountRules: DiscountRule[] = (discountRulesFile as DiscountRuleSet).rules;
+  const discountRulesVersion = (discountRulesFile as DiscountRuleSet).version;
   const today = ref(todayISO());
   const liveMonth = computed(() => today.value.slice(0, 7));
   const month = ref(liveMonth.value); // §6.1 month switcher moves this
@@ -355,6 +363,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     recurring.value = await createRecurringRepo(db).list();
     investmentValues.value = await createInvestmentValuesRepo(db).list();
     savedItems.value = await createSavedItemsRepo(db).list();
+    discountLogs.value = await createDiscountLogsRepo(db).list();
     await refreshTransactions(db);
     await runRecurring(); // §7.3 catch-up: post any auto-transfers/dues that came due while away
     loaded.value = true;
@@ -366,10 +375,10 @@ export const useLedgerStore = defineStore('ledger', () => {
 
   async function addTransaction(input: NewTransaction): Promise<Transaction> {
     const db = await getDb();
-    const { recurring_id = null, saved_item_id = null, ...fields } = input;
+    const { recurring_id = null, saved_item_id = null, discount_rule_id = null, ...fields } = input;
     const txn: Transaction = {
       id: crypto.randomUUID(),
-      discount_rule_id: null,
+      discount_rule_id,
       recurring_id, // §7.5: set by the recurring engine + logDue, else null
       saved_item_id,
       ...fields,
@@ -504,6 +513,40 @@ export const useLedgerStore = defineStore('ledger', () => {
     investmentValues.value = await repo.list();
   }
 
+  const discountSavedThisYear = computed(() =>
+    discountSaved(discountLogs.value, transactions.value, today.value.slice(0, 4)),
+  );
+
+  async function logDiscountedFare(input: {
+    ruleId: string;
+    baseCentavos: number;
+    discountedCentavos: number;
+    accountId: string;
+    categoryId: string | null;
+    date?: string;
+    note?: string | null;
+  }): Promise<Transaction> {
+    const txn = await addTransaction({
+      amount: input.discountedCentavos,
+      kind: 'expense',
+      account_id: input.accountId,
+      to_account_id: null,
+      category_id: input.categoryId,
+      date: input.date ?? today.value,
+      note: input.note ?? null,
+      discount_rule_id: input.ruleId,
+    });
+    const db = await getDb();
+    const repo = createDiscountLogsRepo(db);
+    await repo.create({
+      id: crypto.randomUUID(),
+      transaction_id: txn.id,
+      base_amount: input.baseCentavos,
+    });
+    discountLogs.value = await repo.list();
+    return txn;
+  }
+
   async function saveSavedItem(item: SavedItem): Promise<void> {
     const db = await getDb();
     const repo = createSavedItemsRepo(db);
@@ -600,7 +643,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   return {
-    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, savedItems, month, today, liveMonth, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, savedItems, discountLogs, discountRules, discountRulesVersion, month, today, liveMonth, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
@@ -609,9 +652,10 @@ export const useLedgerStore = defineStore('ledger', () => {
     duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
     statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
     savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,
+    discountSavedThisYear,
     load, refreshToday, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
     addToGoal, saveGoal, deleteGoal, logInvestmentValue, runRecurring, logDue,
-    saveSavedItem, deleteSavedItem, recordSavedItemUse,
+    saveSavedItem, deleteSavedItem, recordSavedItemUse, logDiscountedFare,
   };
 });

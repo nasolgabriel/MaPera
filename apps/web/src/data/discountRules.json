@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "updated": "2026-08-16",
+  "rules": [
+    {
+      "id": "fare-jeepney-student",
+      "category": "fare",
+      "mode": "jeepney",
+      "role": "student",
+      "label": "student fare",
+      "rate_bp": 2000,
+      "vat_exempt": false,
+      "rounding": "quarter_peso"
+    },
+    {
+      "id": "fare-jeepney-senior",
+      "category": "fare",
+      "mode": "jeepney",
+      "role": "senior",
+      "label": "senior fare",
+      "rate_bp": 2000,
+      "vat_exempt": false,
+      "rounding": "quarter_peso"
+    },
+    {
+      "id": "fare-jeepney-pwd",
+      "category": "fare",
+      "mode": "jeepney",
+      "role": "pwd",
+      "label": "PWD fare",
+      "rate_bp": 2000,
+      "vat_exempt": false,
+      "rounding": "quarter_peso"
+    },
+    {
+      "id": "fare-bus-train-student",
+      "category": "fare",
+      "mode": "bus_train",
+      "role": "student",
+      "label": "student fare",
+      "rate_bp": 2000,
+      "vat_exempt": false,
+      "rounding": "quarter_peso"
+    },
+    {
+      "id": "fare-bus-train-senior",
+      "category": "fare",
+      "mode": "bus_train",
+      "role": "senior",
+      "label": "senior fare",
+      "rate_bp": 2000,
+      "vat_exempt": false,
+      "rounding": "quarter_peso"
+    },
+    {
+      "id": "fare-bus-train-pwd",
+      "category": "fare",
+      "mode": "bus_train",
+      "role": "pwd",
+      "label": "PWD fare",
+      "rate_bp": 2000,
+      "vat_exempt": false,
+      "rounding": "quarter_peso"
+    }
+  ]
+}

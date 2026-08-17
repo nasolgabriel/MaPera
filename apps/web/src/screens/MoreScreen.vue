@@ -8,12 +8,16 @@ import { RouterLink } from 'vue-router';
 
     <nav class="list">
       <RouterLink class="row" to="/items">
-        <span>Saved items</span>
+        <span>Saved items library</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </RouterLink>
+      <RouterLink class="row accent" to="/discounts">
+        <span>Fare discounts</span>
         <span class="chevron" aria-hidden="true">›</span>
       </RouterLink>
     </nav>
 
-    <p class="placeholder">Accounts, discounts, lock, theme and backup land in later sessions.</p>
+    <p class="placeholder">Accounts, lock, theme and backup land in later sessions.</p>
   </main>
 </template>
 
@@ -48,6 +52,15 @@ import { RouterLink } from 'vue-router';
   color: var(--color-text);
   font-size: 13px;
   text-decoration: none;
+}
+.row.accent {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #16213a;
+  font-weight: 700;
+}
+.row.accent .chevron {
+  color: #16213a;
 }
 .chevron {
   color: var(--color-textDim);
