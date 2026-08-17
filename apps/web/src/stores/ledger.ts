@@ -12,6 +12,7 @@ import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesR
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createSavedItemsRepo } from '../db/repositories/savedItemsRepo';
 import { createSplitPresetsRepo } from '../db/repositories/splitPresetsRepo';
+import { createSweepsRepo } from '../db/repositories/sweepsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import {
   budgetConsumed, budgetRemaining, budgetUsed, categorySpent, dailySafeSpend, spentByCategory, totalCap, vsBudget,
@@ -37,6 +38,9 @@ import {
 import { cardHealth } from '../domain/credit';
 import { touchSavedItem } from '../domain/savedItems';
 import { discountSaved } from '../domain/discounts';
+import {
+  milestones, streak, streakBars, sweepOffer as offerSweep, sweptWeekKeys, visibleMilestones,
+} from '../domain/gamification';
 import type { DiscountRule, DiscountRuleSet } from '../domain/discounts';
 import discountRulesFile from '../data/discountRules.json';
 import { allocateSplit, daysLeftInMonth } from '../domain/split';
@@ -44,7 +48,7 @@ import {
   accountBalance, income, isSavingsAccount, momChange, sNet, totalSaved,
 } from '../domain/stats';
 import type { SqlDriver } from '../db/driver';
-import type { Account, Budget, Category, DiscountLog, Goal, InvestmentValue, Recurring, SavedItem, SplitPreset, Transaction } from '../db/repositories/types';
+import type { Account, Budget, Category, DiscountLog, Goal, InvestmentValue, Recurring, SavedItem, SplitPreset, Sweep, Transaction } from '../db/repositories/types';
 import type { RecurringTemplate } from '../domain/dues';
 import type { SplitBucket } from '../domain/split';
 
@@ -114,6 +118,8 @@ export const useLedgerStore = defineStore('ledger', () => {
   const investmentValues = ref<InvestmentValue[]>([]); // §7.7 logged market-value snapshots
   const savedItems = ref<SavedItem[]>([]);
   const discountLogs = ref<DiscountLog[]>([]);
+  const sweeps = ref<Sweep[]>([]);
+  const lastMonthBudgets = ref<Budget[]>([]);
   const discountRules: DiscountRule[] = (discountRulesFile as DiscountRuleSet).rules;
   const discountRulesVersion = (discountRulesFile as DiscountRuleSet).version;
   const today = ref(todayISO());
@@ -241,6 +247,22 @@ export const useLedgerStore = defineStore('ledger', () => {
       ),
   );
 
+  // ── B12 Gamification (§7.4) — streak/milestones/sweep derived live via domain/gamification ──
+
+  const sweptWeeks = computed(() => sweptWeekKeys(sweeps.value, transactions.value));
+  const sweptMonths = computed(() => new Set(sweeps.value.map((s) => s.month)));
+  const savingStreak = computed(() =>
+    streak(accounts.value, transactions.value, today.value, sweptWeeks.value),
+  );
+  const streakWeekBars = computed(() => streakBars(savingStreak.value));
+  const milestoneRows = computed(() =>
+    visibleMilestones(milestones(accounts.value, transactions.value, liveMonth.value)),
+  );
+  const nextMilestone = computed(() => milestoneRows.value.find((r) => r.next) ?? null);
+  const underBudgetSweep = computed(() =>
+    offerSweep(accounts.value, transactions.value, lastMonthBudgets.value, today.value, sweptMonths.value),
+  );
+
   // ── B8 Investments (§6.3 rows / §7.7 / §8.3) — all return math via domain/investments ──
 
   /** Active investment accounts with §8.3 figures. balance = book/cost value (§8.1, feeds the
@@ -364,6 +386,8 @@ export const useLedgerStore = defineStore('ledger', () => {
     investmentValues.value = await createInvestmentValuesRepo(db).list();
     savedItems.value = await createSavedItemsRepo(db).list();
     discountLogs.value = await createDiscountLogsRepo(db).list();
+    sweeps.value = await createSweepsRepo(db).list();
+    lastMonthBudgets.value = await createBudgetsRepo(db).listByMonth(shiftMonthKey(liveMonth.value, -1));
     await refreshTransactions(db);
     await runRecurring(); // §7.3 catch-up: post any auto-transfers/dues that came due while away
     loaded.value = true;
@@ -547,6 +571,24 @@ export const useLedgerStore = defineStore('ledger', () => {
     return txn;
   }
 
+  async function sweepUnderBudget(sourceAccountId: string, destinationAccountId: string): Promise<void> {
+    const offer = underBudgetSweep.value;
+    if (offer === null || sourceAccountId === destinationAccountId) return;
+    const txn = await addTransaction({
+      amount: offer.leftover,
+      kind: 'transfer',
+      account_id: sourceAccountId,
+      to_account_id: destinationAccountId,
+      category_id: null,
+      date: today.value,
+      note: `Under-budget sweep · ${offer.month}`,
+    });
+    const db = await getDb();
+    const repo = createSweepsRepo(db);
+    await repo.create({ id: crypto.randomUUID(), month: offer.month, transaction_id: txn.id });
+    sweeps.value = await repo.list();
+  }
+
   async function saveSavedItem(item: SavedItem): Promise<void> {
     const db = await getDb();
     const repo = createSavedItemsRepo(db);
@@ -643,7 +685,7 @@ export const useLedgerStore = defineStore('ledger', () => {
   }
 
   return {
-    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, savedItems, discountLogs, discountRules, discountRulesVersion, month, today, liveMonth, recent, hubGauge, loaded,
+    accounts, categories, transactions, budgets, presets, goals, recurring, investmentValues, savedItems, discountLogs, discountRules, discountRulesVersion, sweeps, month, today, liveMonth, recent, hubGauge, loaded,
     accountBalances, spendSlices, capTotal, remainingBudget,
     capsByCategory, spentByCappedCategory, usedByCategory, daysLeft, safeSpendToday,
     daySpends, dayCap, monthCells, weekDays, weekTotal, previousWeekTotal, weekChange, weekAverage,
@@ -653,9 +695,10 @@ export const useLedgerStore = defineStore('ledger', () => {
     statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
     savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,
     discountSavedThisYear,
+    savingStreak, streakWeekBars, milestoneRows, nextMilestone, underBudgetSweep,
     load, refreshToday, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
     addToGoal, saveGoal, deleteGoal, logInvestmentValue, runRecurring, logDue,
-    saveSavedItem, deleteSavedItem, recordSavedItemUse, logDiscountedFare,
+    saveSavedItem, deleteSavedItem, recordSavedItemUse, logDiscountedFare, sweepUnderBudget,
   };
 });

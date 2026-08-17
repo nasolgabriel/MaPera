@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // §6.3 Savings home (C1 wireframe): dark hero (total saved + this-month rate/level),
 // savings-account rows, goals (ring + ₱-to-go + projected date + add).
-// Investment rows (B8) add market value + returns + a "log value" control; streak/milestone = B12.
+// Investment rows (B8) add market value + returns + a "log value" control; the hero's
+// streak/milestone line (B12) links to the Growth screen, which holds the rate + level detail.
 // All money numbers come from the store's domain-wired computeds; the two domain helpers
 // imported here are pure lookups, not math done in the .vue (§4).
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
 import GoalRing from '../components/GoalRing.vue';
 import AddToGoalSheet from '../components/AddToGoalSheet.vue';
@@ -14,6 +16,7 @@ import { goalFraction, goalToGo } from '../domain/savings';
 import type { Account, Goal } from '../db/repositories/types';
 
 const store = useLedgerStore();
+const router = useRouter();
 
 const TYPE_LABEL: Record<Account['type'], string> = {
   cash: 'cash', ewallet: 'e-wallet', bank: 'bank', investment: 'investment', credit_card: 'credit card',
@@ -72,15 +75,18 @@ function growthLabel(inv: InvestView): string | null {
   return `${sign}${pesoWhole(Math.abs(inv.periodGrowth))} this month`;
 }
 
-const liveMonthLabel = new Date().toLocaleDateString('en-PH', { month: 'long' });
-
-/** `15% · Gold` for the hero, or a nudge when there's no rate to show (invariant 5). */
-const rateLine = computed(() => {
-  const r = store.savingsRateInfo;
-  if (r === null) return { text: 'set income to see your rate', muted: true };
-  const pct = r.pct.toFixed(r.pct % 1 === 0 ? 0 : 1);
-  return { text: `${pct}% of income · ${r.level}${r.capped ? ' (capped)' : ''}`, muted: false };
+const growthLine = computed(() => {
+  const weeks = store.savingStreak.weeks;
+  const streakText = weeks === 0 ? 'no streak yet' : `${weeks}-week streak`;
+  const next = store.nextMilestone;
+  if (next === null || next.toGo === null) return streakText;
+  return `${streakText} · ₱${Math.round(next.toGo / 100).toLocaleString('en-PH')} to ${milestoneLabel(next.amount)} milestone`;
 });
+
+function milestoneLabel(amount: number): string {
+  const pesos = amount / 100;
+  return pesos >= 1000 ? `₱${pesos / 1000}k` : `₱${pesos}`;
+}
 
 // ── sheets ──
 const addingTo = ref<Goal | null>(null);
@@ -132,9 +138,10 @@ onMounted(async () => {
     <section class="hero">
       <span class="hero-label mono">total saved</span>
       <span class="hero-amount amount">{{ pesoWhole(store.totalSavedAmount) }}</span>
-      <span class="hero-rate mono" :class="{ muted: rateLine.muted }">
-        Savings rate · {{ liveMonthLabel }}: {{ rateLine.text }}
-      </span>
+      <button class="hero-growth mono" aria-label="Growth rewards" @click="router.push('/growth')">
+        <span>{{ growthLine }}</span>
+        <span class="hero-chevron" aria-hidden="true">›</span>
+      </button>
     </section>
 
     <!-- Savings-flagged accounts. Investment rows carry §8.3 returns + a "log value" control (B8). -->
@@ -259,11 +266,20 @@ onMounted(async () => {
   font-weight: 800;
   color: #ffc93e; /* saffron money moment (§5) */
 }
-.hero-rate {
+.hero-growth {
+  min-height: 0;
+  padding: 2px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  text-align: left;
   font-size: 9px;
   color: #b7c2d6;
 }
-.hero-rate.muted {
+.hero-chevron {
+  font-size: 14px;
   color: #8b97ad;
 }
 .accounts,

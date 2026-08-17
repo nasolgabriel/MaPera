@@ -9,6 +9,8 @@ import { createInvestmentValuesRepo } from '../db/repositories/investmentValuesR
 import { createRecurringRepo } from '../db/repositories/recurringRepo';
 import { createSavedItemsRepo } from '../db/repositories/savedItemsRepo';
 import { createDiscountLogsRepo } from '../db/repositories/discountLogsRepo';
+import { createBudgetsRepo } from '../db/repositories/budgetsRepo';
+import { createSweepsRepo } from '../db/repositories/sweepsRepo';
 import { createTransactionsRepo } from '../db/repositories/transactionsRepo';
 import { cashFlow, expenses, totalBalance, sNet } from '../domain/stats';
 import type { Goal, Recurring } from '../db/repositories/types';
@@ -882,5 +884,106 @@ describe('discounts (B11 · §6.5 / §7.9)', () => {
 
     await store.deleteTransaction(txn.id);
     expect(store.discountSavedThisYear).toBe(0);
+  });
+});
+
+describe('ledger store (B12 gamification)', () => {
+  /** regular → savings contribution (§7.2), straight into the DB so it predates load(). */
+  async function contribution(id: string, amount: number, date: string): Promise<void> {
+    await createTransactionsRepo(dbRef.current!).create({
+      id, amount, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-bank',
+      category_id: null, date, note: null,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    });
+  }
+
+  /** June closes ₱1,200 under a ₱10,000 food cap — the wireframe C3 sweep scene. */
+  async function juneUnderBudget(): Promise<void> {
+    await createBudgetsRepo(dbRef.current!).create({
+      id: 'bud-food-jun', category_id: 'cat-food', month: '2026-06', cap_amount: 1000000,
+    });
+    await createTransactionsRepo(dbRef.current!).create({
+      id: 'txn-jun-food', amount: 880000, kind: 'expense', account_id: 'acc-bank', to_account_id: null,
+      category_id: 'cat-food', date: '2026-06-10', note: null,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    });
+  }
+
+  it('counts a saving week per ISO week, not per log day', async () => {
+    await contribution('c1', 100000, '2026-06-30'); // W27
+    await contribution('c2', 50000, '2026-07-07'); // W28
+    await contribution('c3', 50000, '2026-07-09'); // W28 again — same week, still one
+    await contribution('c4', 50000, '2026-07-14'); // W29 (today)
+    const store = useLedgerStore();
+    await store.load();
+
+    expect(store.savingStreak.weeks).toBe(3);
+    expect(store.streakWeekBars.map((w) => w.week)).toEqual(['2026-W27', '2026-W28', '2026-W29']);
+  });
+
+  it('recomputes the streak when a transaction is deleted (invariant 4)', async () => {
+    await contribution('c1', 100000, '2026-06-30'); // W27
+    await contribution('c2', 50000, '2026-07-07'); // W28
+    await contribution('c3', 50000, '2026-07-14'); // W29
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.savingStreak.weeks).toBe(3);
+
+    await store.deleteTransaction('c2'); // W28 now has no saving — the streak breaks there
+    expect(store.savingStreak.weeks).toBe(1);
+  });
+
+  it('offers last month’s leftover once the month has closed', async () => {
+    await juneUnderBudget();
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.underBudgetSweep).toEqual({ month: '2026-06', leftover: 120000 });
+  });
+
+  it('sweeping moves the leftover into savings and counts the week double', async () => {
+    await juneUnderBudget();
+    await contribution('c1', 50000, '2026-07-07'); // W28
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.savingStreak.weeks).toBe(1);
+
+    const before = await snapshot();
+    await store.sweepUnderBudget('acc-cash', 'acc-bank');
+    const after = await snapshot();
+
+    // The sweep is a transfer: total_balance is untouched (invariant 1).
+    expect(totalBalance(after.accounts, after.txns)).toBe(totalBalance(before.accounts, before.txns));
+    expect(sNet(after.accounts, after.txns, MONTH)).toBe(sNet(before.accounts, before.txns, MONTH) + 120000);
+    // W28 = 1, W29 swept = 2.
+    expect(store.savingStreak.weeks).toBe(3);
+    expect(store.streakWeekBars[store.streakWeekBars.length - 1]).toMatchObject({ week: '2026-W29', swept: true });
+  });
+
+  it('offers a month only once', async () => {
+    await juneUnderBudget();
+    const store = useLedgerStore();
+    await store.load();
+    await store.sweepUnderBudget('acc-cash', 'acc-bank');
+
+    expect(store.underBudgetSweep).toBeNull();
+    expect(await createSweepsRepo(dbRef.current!).list()).toMatchObject([{ month: '2026-06' }]);
+
+    const count = (await createTransactionsRepo(dbRef.current!).list()).length;
+    await store.sweepUnderBudget('acc-cash', 'acc-bank');
+    expect((await createTransactionsRepo(dbRef.current!).list()).length).toBe(count);
+  });
+
+  it('offers nothing when the closed month had no caps', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.underBudgetSweep).toBeNull();
+  });
+
+  it('surfaces the next milestone with its ₱-to-go', async () => {
+    // BPI (savings) holds the seed income ₱20,000 less its ₱9,000 expense = ₱11,000 saved.
+    const store = useLedgerStore();
+    await store.load();
+    expect(store.milestoneRows[0]).toMatchObject({ amount: 1000000, reached: true });
+    expect(store.nextMilestone).toMatchObject({ amount: 5000000, toGo: 3900000 });
   });
 });

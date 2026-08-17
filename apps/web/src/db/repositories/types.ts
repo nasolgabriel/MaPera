@@ -100,3 +100,9 @@ export interface DiscountLog {
   transaction_id: string;
   base_amount: number;
 }
+
+export interface Sweep {
+  id: string;
+  month: string;
+  transaction_id: string;
+}

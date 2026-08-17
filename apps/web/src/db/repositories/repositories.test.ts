@@ -12,6 +12,7 @@ import { createSavingPeriodsRepo } from './savingPeriodsRepo';
 import { createSplitPresetsRepo } from './splitPresetsRepo';
 import { createInvestmentValuesRepo } from './investmentValuesRepo';
 import { createDiscountLogsRepo } from './discountLogsRepo';
+import { createSweepsRepo } from './sweepsRepo';
 import { seed } from '../seed';
 
 let db: SqlDriver;
@@ -226,5 +227,23 @@ describe('discountLogsRepo', () => {
     expect(await repo.list()).toHaveLength(1);
     await repo.remove('d1');
     expect(await repo.getById('d1')).toBeNull();
+  });
+});
+
+describe('sweepsRepo', () => {
+  it('round-trips create/get/list/delete keyed by month', async () => {
+    const repo = createSweepsRepo(db);
+    await repo.create({ id: 'sw1', month: '2026-06', transaction_id: 'txn-income-1' });
+    expect(await repo.getByMonth('2026-06')).toMatchObject({ id: 'sw1', transaction_id: 'txn-income-1' });
+    expect(await repo.getByMonth('2026-05')).toBeNull();
+    expect(await repo.list()).toHaveLength(1);
+    await repo.remove('sw1');
+    expect(await repo.getByMonth('2026-06')).toBeNull();
+  });
+
+  it('refuses a second sweep of the same month', async () => {
+    const repo = createSweepsRepo(db);
+    await repo.create({ id: 'sw1', month: '2026-06', transaction_id: 'txn-income-1' });
+    await expect(repo.create({ id: 'sw2', month: '2026-06', transaction_id: 'txn-expense-1' })).rejects.toThrow();
   });
 });

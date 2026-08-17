@@ -9,6 +9,8 @@ import { createInvestmentValuesRepo } from './db/repositories/investmentValuesRe
 import { createRecurringRepo } from './db/repositories/recurringRepo'
 import { createSavedItemsRepo } from './db/repositories/savedItemsRepo'
 import { createDiscountLogsRepo } from './db/repositories/discountLogsRepo'
+import { createBudgetsRepo } from './db/repositories/budgetsRepo'
+import { createSweepsRepo } from './db/repositories/sweepsRepo'
 import { createTransactionsRepo } from './db/repositories/transactionsRepo'
 import type { SqlDriver } from './db/driver'
 import App from './App.vue'
@@ -55,10 +57,12 @@ describe('app shell', () => {
     expect(wrapper.findAll('.banner .blank')).toHaveLength(4)
   })
 
-  it('has routes for all ten screens', () => {
+  it('has routes for all eleven screens', () => {
     const names = router.getRoutes().map((r) => r.name)
     expect(names).toEqual(
-      expect.arrayContaining(['budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items', 'discounts']),
+      expect.arrayContaining([
+        'budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items', 'discounts', 'growth',
+      ]),
     )
   })
 
@@ -357,5 +361,61 @@ describe('app shell', () => {
     expect(wrapper.find('.rule-line').text()).toContain('senior fare')
     expect(wrapper.find('.discounted').text()).toContain('10.50')
     expect(wrapper.find('.kept').text()).toContain('2.50')
+  })
+
+  it('opens Growth from the Savings hero and shows streak, level, milestones (B12)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    // Two consecutive saving weeks: W28 and W29 (seed clock = Tue 2026-07-14).
+    for (const [id, date] of [['c-w28', '2026-07-07'], ['c-w29', '2026-07-13']] as const) {
+      await createTransactionsRepo(dbRef.current).create({
+        id, amount: 100000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-bank',
+        category_id: null, date, note: null,
+        discount_rule_id: null, recurring_id: null, saved_item_id: null,
+      })
+    }
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/savings')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2-week streak')
+    await wrapper.find('.hero-growth').trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('growth'))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Saving streak')
+    expect(wrapper.text()).toContain('2 weeks')
+    expect(wrapper.findAll('.bars .bar')).toHaveLength(2)
+    expect(wrapper.text()).toContain('a week counts when you add to savings')
+    expect(wrapper.text()).toContain('Milestones')
+  })
+
+  it('sweeps last month’s leftover into savings and marks the week ×2 (B12)', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    await createBudgetsRepo(dbRef.current).create({
+      id: 'bud-food-jun', category_id: 'cat-food', month: '2026-06', cap_amount: 1000000,
+    })
+    await createTransactionsRepo(dbRef.current).create({
+      id: 'txn-jun-food', amount: 880000, kind: 'expense', account_id: 'acc-bank', to_account_id: null,
+      category_id: 'cat-food', date: '2026-06-10', note: null,
+      discount_rule_id: null, recurring_id: null, saved_item_id: null,
+    })
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push('/growth')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('June ended ₱1,200 under budget.')
+    await wrapper.find('.sweep-btn').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('counts ×2 toward your streak')
+
+    await wrapper.find('.sweep').trigger('click')
+    await flushPromises()
+
+    expect(await createSweepsRepo(dbRef.current).list()).toMatchObject([{ month: '2026-06' }])
+    expect(wrapper.find('.sweep-card').exists()).toBe(false)
+    expect(wrapper.text()).toContain('2 weeks')
+    expect(wrapper.find('.bar.swept').exists()).toBe(true)
   })
 })

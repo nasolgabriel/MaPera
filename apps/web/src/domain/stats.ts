@@ -78,25 +78,36 @@ export function cashFlow(accounts: Account[], transactions: Transaction[], month
   return income(accounts, transactions, month) - expenses(accounts, transactions, month);
 }
 
+export function accountsById(accounts: Account[]): Map<string, Account> {
+  return new Map(accounts.map((a) => [a.id, a]));
+}
+
 /**
- * S_net(t) = contributions(t) − withdrawals(t). §8.1 / §7.2
+ * One transaction's signed contribution to S_net. §7.2
  *   regular → savings  = contribution (+)
  *   savings → regular  = withdrawal   (−)
- *   regular ↔ regular / savings ↔ savings = counts in nothing
+ *   regular ↔ regular / savings ↔ savings / non-transfers = counts in nothing (0)
  * Only active accounts on both legs (archived excluded — §8 notation).
  */
+export function savingsFlow(byId: Map<string, Account>, t: Transaction): number {
+  if (t.kind !== 'transfer') return 0;
+  const from = byId.get(t.account_id);
+  const to = t.to_account_id ? byId.get(t.to_account_id) : undefined;
+  if (!from || !to || from.archived || to.archived) return 0;
+  const fromSavings = isSavingsAccount(from);
+  const toSavings = isSavingsAccount(to);
+  if (!fromSavings && toSavings) return t.amount;
+  if (fromSavings && !toSavings) return -t.amount;
+  return 0;
+}
+
+/** S_net(t) = contributions(t) − withdrawals(t). §8.1 / §7.2 */
 export function sNet(accounts: Account[], transactions: Transaction[], month: string): number {
-  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const byId = accountsById(accounts);
   let net = 0;
   for (const t of transactions) {
-    if (t.kind !== 'transfer' || monthOf(t.date) !== month) continue;
-    const from = byId.get(t.account_id);
-    const to = t.to_account_id ? byId.get(t.to_account_id) : undefined;
-    if (!from || !to || from.archived || to.archived) continue;
-    const fromSavings = isSavingsAccount(from);
-    const toSavings = isSavingsAccount(to);
-    if (!fromSavings && toSavings) net += t.amount; // contribution
-    else if (fromSavings && !toSavings) net -= t.amount; // withdrawal
+    if (monthOf(t.date) !== month) continue;
+    net += savingsFlow(byId, t);
   }
   return net;
 }

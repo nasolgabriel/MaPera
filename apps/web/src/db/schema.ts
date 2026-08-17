@@ -101,4 +101,10 @@ CREATE TABLE IF NOT EXISTS discount_logs (
   transaction_id TEXT NOT NULL REFERENCES transactions(id),
   base_amount INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sweeps (
+  id TEXT PRIMARY KEY,
+  month TEXT NOT NULL UNIQUE,
+  transaction_id TEXT NOT NULL REFERENCES transactions(id)
+);
 `;

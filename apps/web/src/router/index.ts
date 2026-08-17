@@ -6,6 +6,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'budget', component: () => import('../screens/BudgetScreen.vue') },
     { path: '/savings', name: 'savings', component: () => import('../screens/SavingsScreen.vue') },
+    { path: '/growth', name: 'growth', component: () => import('../screens/GrowthScreen.vue') },
     { path: '/stats', name: 'stats', component: () => import('../screens/StatisticsScreen.vue') },
     { path: '/more', name: 'more', component: () => import('../screens/MoreScreen.vue') },
     { path: '/caps', name: 'caps', component: () => import('../screens/CapsScreen.vue') },
