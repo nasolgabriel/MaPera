@@ -196,13 +196,13 @@ onBeforeUnmount(() => {
   background: rgba(22, 33, 58, 0.45); /* §6: dims 45% */
 }
 /* --- Arc: emerge-from-hub ------------------------------------------------
-   Zero-size origin pinned to the hub's exact center (hub is 64px tall at
-   bottom 24px + safe-bottom, so its center is 56px + safe-bottom). Buttons
+   Zero-size origin pinned to the hub's exact center (hub is 76px tall at
+   bottom 24px + safe-bottom, so its center is 62px + safe-bottom). Buttons
    are absolutely placed here, start as 8px dots, then travel out while
    inflating. Keep this bottom value in sync with .hub-wrap. */
 .arc {
   position: fixed;
-  bottom: calc(56px + var(--safe-bottom));
+  bottom: calc(62px + var(--safe-bottom));
   left: 50%;
   width: 0;
   height: 0;
@@ -241,29 +241,29 @@ onBeforeUnmount(() => {
     box-shadow 0.18s ease;
 }
 .arc.open .arc-btn {
-  width: 44px;
-  height: 44px;
-  margin: -22px 0 0 -22px;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
   background: var(--color-surface);
 }
-/* Arc endpoints match the original navigation-model cluster: 44px circles,
-   8px gaps (centers at ±26 / ±78), outer two sitting 12px lower. Tight, not
+/* Arc endpoints match the original navigation-model cluster: 52px circles,
+   8px gaps (centers at ±30 / ±90), outer two sitting 12px lower. Tight, not
    spread — see the "navigation model" card in the wireframes. */
 .arc.open .at-budget {
-  transform: translate(-78px, -76px);
+  transform: translate(-90px, -80px);
 }
 .arc.open .at-savings {
-  transform: translate(-26px, -88px);
+  transform: translate(-30px, -92px);
 }
 .arc.open .at-stats {
-  transform: translate(26px, -88px);
+  transform: translate(30px, -92px);
 }
 .arc.open .at-more {
-  transform: translate(78px, -76px);
+  transform: translate(90px, -80px);
 }
 .arc-icon {
-  width: 19px;
-  height: 19px;
+  width: 23px;
+  height: 23px;
   flex: none;
   transform: scale(0);
   /* Late overshoot: icon pops after its circle has arrived. */
@@ -304,16 +304,16 @@ onBeforeUnmount(() => {
   box-shadow: 0 6px 16px rgba(22, 33, 58, 0.35);
 }
 .arc.open .at-budget.hot {
-  transform: translate(-78px, -76px) scale(1.14);
+  transform: translate(-90px, -80px) scale(1.14);
 }
 .arc.open .at-savings.hot {
-  transform: translate(-26px, -88px) scale(1.14);
+  transform: translate(-30px, -92px) scale(1.14);
 }
 .arc.open .at-stats.hot {
-  transform: translate(26px, -88px) scale(1.14);
+  transform: translate(30px, -92px) scale(1.14);
 }
 .arc.open .at-more.hot {
-  transform: translate(78px, -76px) scale(1.14);
+  transform: translate(90px, -80px) scale(1.14);
 }
 /* Backdrop fade */
 .fade-enter-active,
@@ -330,8 +330,8 @@ onBeforeUnmount(() => {
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
-  width: 64px;
-  height: 64px;
+  width: 76px;
+  height: 76px;
 }
 .gauge {
   position: absolute;
@@ -365,7 +365,7 @@ onBeforeUnmount(() => {
   background: var(--color-primary);
   border: 3px solid var(--color-surface);
   color: #fff;
-  font-size: 28px;
+  font-size: 33px;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -375,7 +375,7 @@ onBeforeUnmount(() => {
   transform: scale(0.92); /* press feedback while the hold timer runs */
 }
 /* Reference shrinks the FAB hard (60→40); owner asked for far less, so this
-   is a 64→58 equivalent — it reacts without looking like it deflates. */
+   is a 76→69 equivalent — it reacts without looking like it deflates. */
 .hub.open {
   transform: scale(0.91);
 }
