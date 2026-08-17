@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
+import BackButton from '../components/BackButton.vue';
 import { isSavingsAccount } from '../domain/stats';
 import { applyDiscount, findRule, ratePercent } from '../domain/discounts';
 import type { DiscountRole, FareMode } from '../domain/discounts';
@@ -92,7 +93,10 @@ onMounted(async () => {
 
 <template>
   <main class="screen">
-    <h1 class="title">Fare discounts</h1>
+    <header class="screen-head">
+      <BackButton to="/more" label="Back to More" />
+      <h1 class="title">Fare discounts</h1>
+    </header>
 
     <div class="roles">
       <button

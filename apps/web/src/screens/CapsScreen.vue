@@ -3,6 +3,7 @@
 // All amounts come from the store's domain-wired computeds — no money math here.
 import { computed, onMounted, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
+import BackButton from '../components/BackButton.vue';
 import BudgetBar from '../components/BudgetBar.vue';
 
 const store = useLedgerStore();
@@ -77,7 +78,10 @@ onMounted(async () => {
 
 <template>
   <main class="screen">
-    <h1 class="title">Budgets · {{ monthLabel }}</h1>
+    <header class="screen-head">
+      <BackButton to="/" label="Back to Budget" />
+      <h1 class="title">Budgets · {{ monthLabel }}</h1>
+    </header>
 
     <div v-if="store.safeSpendToday !== null" class="safe-card">
       <span class="safe-label">safe to spend today</span>

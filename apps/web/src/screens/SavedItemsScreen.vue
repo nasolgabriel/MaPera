@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
+import BackButton from '../components/BackButton.vue';
 import { suggestedPrice } from '../domain/savedItems';
 import SavedItemSheet from '../components/SavedItemSheet.vue';
 import type { SavedItem } from '../db/repositories/types';
@@ -37,7 +38,10 @@ onMounted(async () => {
 
 <template>
   <main class="screen">
-    <h1 class="title">Saved items</h1>
+    <header class="screen-head">
+      <BackButton to="/more" label="Back to More" />
+      <h1 class="title">Saved items</h1>
+    </header>
     <p class="lede">
       Your quick-log library. Start typing a name in the log sheet's note field and these
       suggest themselves — tap one to fill in price, category and kind.

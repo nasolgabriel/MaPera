@@ -4,6 +4,7 @@
 // Every figure comes from the store's domain-wired creditCardsView (§4: no math in the .vue).
 import { computed, onMounted } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
+import BackButton from '../components/BackButton.vue';
 import CreditCardHealth from '../components/CreditCardHealth.vue';
 
 const store = useLedgerStore();
@@ -21,7 +22,10 @@ onMounted(async () => {
 
 <template>
   <main class="screen">
-    <h1 class="title">Card health · {{ monthLabel }}</h1>
+    <header class="screen-head">
+      <BackButton to="/" label="Back to Budget" />
+      <h1 class="title">Card health · {{ monthLabel }}</h1>
+    </header>
 
     <CreditCardHealth
       v-for="card in store.creditCardsView"

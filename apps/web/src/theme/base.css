@@ -76,3 +76,9 @@ button {
   min-height: 44px;
   min-width: 44px;
 }
+
+.screen-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

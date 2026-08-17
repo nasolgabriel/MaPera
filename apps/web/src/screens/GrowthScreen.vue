@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useLedgerStore } from '../stores/ledger';
+import BackButton from '../components/BackButton.vue';
 import { useReveal } from '../composables/useReveal';
 import SweepSheet from '../components/SweepSheet.vue';
 import type { MilestoneRow } from '../domain/gamification';
@@ -65,7 +66,10 @@ onMounted(async () => {
 
 <template>
   <main class="screen">
-    <h1 class="title">Growth</h1>
+    <header class="screen-head">
+      <BackButton to="/savings" label="Back to Savings" />
+      <h1 class="title">Growth</h1>
+    </header>
 
     <section class="card">
       <div class="card-head">

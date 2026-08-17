@@ -418,3 +418,41 @@ describe('app shell', () => {
     expect(wrapper.find('.bar.swept').exists()).toBe(true)
   })
 })
+
+describe('sub-screen back arrow (E4)', () => {
+  pinSeedClock()
+
+  const CASES: Array<[string, string, string]> = [
+    ['/caps', 'Back to Budget', 'budget'],
+    ['/card', 'Back to Budget', 'budget'],
+    ['/growth', 'Back to Savings', 'savings'],
+    ['/items', 'Back to More', 'more'],
+    ['/discounts', 'Back to More', 'more'],
+  ]
+
+  it.each(CASES)('%s returns to its parent section', async (from, label, parent) => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push(from)
+    await flushPromises()
+
+    const back = wrapper.find(`[aria-label="${label}"]`)
+    expect(back.exists()).toBe(true)
+    expect(back.find('svg').attributes('aria-hidden')).toBe('true')
+
+    await back.trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe(parent))
+  })
+
+  it('leaves the four hub destinations alone', async () => {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    for (const path of ['/', '/savings', '/stats', '/more']) {
+      await router.push(path)
+      await flushPromises()
+      expect(wrapper.find('.screen-head .back').exists()).toBe(false)
+    }
+  })
+})
