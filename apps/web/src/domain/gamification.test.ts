@@ -31,12 +31,10 @@ function txn(over: Partial<Transaction> & Pick<Transaction, 'id' | 'amount' | 'd
   };
 }
 
-/** regular → savings: an S contribution (§7.2). */
 function save(id: string, amount: number, date: string): Transaction {
   return txn({ id, amount, date });
 }
 
-/** savings → regular: an S withdrawal (§7.2). */
 function withdraw(id: string, amount: number, date: string): Transaction {
   return txn({ id, amount, date, account_id: 'acc-bank', to_account_id: 'acc-cash' });
 }
@@ -103,7 +101,6 @@ describe('streak (§7.4 — weekly, savings-centered)', () => {
   });
 
   it('survives days with no log at all — only the week matters', () => {
-    // One contribution per week for four weeks; every other day is unlogged.
     const info = streak(
       accounts,
       [
@@ -124,7 +121,6 @@ describe('streak (§7.4 — weekly, savings-centered)', () => {
       [
         save('t1', 100000, '2026-06-22'), // W26
         save('t2', 100000, '2026-06-30'), // W27
-        // W28 — nothing saved
         save('t4', 100000, '2026-07-14'), // W29
       ],
       TODAY,
@@ -140,7 +136,6 @@ describe('streak (§7.4 — weekly, savings-centered)', () => {
         save('t1', 100000, '2026-06-22'), // W26
         save('t2', 100000, '2026-06-30'), // W27
         save('t3', 100000, '2026-07-09'), // W28
-        // W29 still running, nothing saved yet
       ],
       TODAY,
     );
@@ -203,7 +198,6 @@ describe('streak (§7.4 — weekly, savings-centered)', () => {
   });
 });
 
-/** Tuesday, `back` weeks before TODAY. */
 function weekOffset(back: number): string {
   const d = new Date('2026-07-14T00:00:00');
   d.setDate(d.getDate() - back * 7);

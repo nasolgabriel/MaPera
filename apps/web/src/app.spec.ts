@@ -366,7 +366,6 @@ describe('app shell', () => {
   it('opens Growth from the Savings hero and shows streak, level, milestones (B12)', async () => {
     dbRef.current = await createSqlJsDriver()
     await seed(dbRef.current)
-    // Two consecutive saving weeks: W28 and W29 (seed clock = Tue 2026-07-14).
     for (const [id, date] of [['c-w28', '2026-07-07'], ['c-w29', '2026-07-13']] as const) {
       await createTransactionsRepo(dbRef.current).create({
         id, amount: 100000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-bank',

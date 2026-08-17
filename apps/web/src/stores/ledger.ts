@@ -375,7 +375,16 @@ export const useLedgerStore = defineStore('ledger', () => {
   /** vs_budget(t) for the loaded month (§8.4) — the spend-vs-budget card; null with no caps. */
   const spendVsBudget = computed(() => vsBudget(accounts.value, transactions.value, budgets.value, month.value));
 
-  async function load(): Promise<void> {
+  let inFlight: Promise<void> | null = null;
+
+  function load(): Promise<void> {
+    inFlight ??= runLoad().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
+  async function runLoad(): Promise<void> {
     const db = await getDb();
     accounts.value = await createAccountsRepo(db).list();
     categories.value = await createCategoriesRepo(db).list();

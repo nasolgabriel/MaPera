@@ -888,7 +888,6 @@ describe('discounts (B11 · §6.5 / §7.9)', () => {
 });
 
 describe('ledger store (B12 gamification)', () => {
-  /** regular → savings contribution (§7.2), straight into the DB so it predates load(). */
   async function contribution(id: string, amount: number, date: string): Promise<void> {
     await createTransactionsRepo(dbRef.current!).create({
       id, amount, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-bank',
@@ -897,7 +896,6 @@ describe('ledger store (B12 gamification)', () => {
     });
   }
 
-  /** June closes ₱1,200 under a ₱10,000 food cap — the wireframe C3 sweep scene. */
   async function juneUnderBudget(): Promise<void> {
     await createBudgetsRepo(dbRef.current!).create({
       id: 'bud-food-jun', category_id: 'cat-food', month: '2026-06', cap_amount: 1000000,
@@ -951,10 +949,8 @@ describe('ledger store (B12 gamification)', () => {
     await store.sweepUnderBudget('acc-cash', 'acc-bank');
     const after = await snapshot();
 
-    // The sweep is a transfer: total_balance is untouched (invariant 1).
     expect(totalBalance(after.accounts, after.txns)).toBe(totalBalance(before.accounts, before.txns));
     expect(sNet(after.accounts, after.txns, MONTH)).toBe(sNet(before.accounts, before.txns, MONTH) + 120000);
-    // W28 = 1, W29 swept = 2.
     expect(store.savingStreak.weeks).toBe(3);
     expect(store.streakWeekBars[store.streakWeekBars.length - 1]).toMatchObject({ week: '2026-W29', swept: true });
   });
@@ -980,10 +976,59 @@ describe('ledger store (B12 gamification)', () => {
   });
 
   it('surfaces the next milestone with its ₱-to-go', async () => {
-    // BPI (savings) holds the seed income ₱20,000 less its ₱9,000 expense = ₱11,000 saved.
     const store = useLedgerStore();
     await store.load();
     expect(store.milestoneRows[0]).toMatchObject({ amount: 1000000, reached: true });
     expect(store.nextMilestone).toMatchObject({ amount: 5000000, toGo: 3900000 });
+  });
+});
+
+describe('ledger store — concurrent load()', () => {
+  async function overdueAutoTransfer(): Promise<void> {
+    await createRecurringRepo(dbRef.current!).create({
+      id: 'rec-auto', kind: 'transfer', frequency: 'monthly', next_due: '2026-07-01',
+      auto_post: true, remaining_payments: null,
+      template: JSON.stringify({
+        amount: 200000, kind: 'transfer', account_id: 'acc-cash', to_account_id: 'acc-bank',
+        category_id: null, note: 'Auto-save', total_payments: null, interval_months: null,
+      }),
+    });
+  }
+
+  it('posts a due auto-transfer exactly once when two components mount together', async () => {
+    await overdueAutoTransfer();
+    const store = useLedgerStore();
+    await Promise.all([store.load(), store.load()]);
+
+    const txns = await createTransactionsRepo(dbRef.current!).list();
+    expect(txns.filter((t) => t.recurring_id === 'rec-auto')).toHaveLength(1);
+  });
+
+  it('keeps a loan schedule consistent under a double mount', async () => {
+    await createRecurringRepo(dbRef.current!).create({
+      id: 'rec-loan2', kind: 'loan', frequency: 'monthly', next_due: '2026-07-05',
+      auto_post: true, remaining_payments: 10,
+      template: JSON.stringify({
+        amount: 230000, kind: 'expense', account_id: 'acc-bank', to_account_id: null,
+        category_id: null, note: 'Gadget loan', total_payments: 24, interval_months: null,
+      }),
+    });
+    const store = useLedgerStore();
+    await Promise.all([store.load(), store.load(), store.load()]);
+
+    const txns = await createTransactionsRepo(dbRef.current!).list();
+    const paid = txns.filter((t) => t.recurring_id === 'rec-loan2');
+    const row = await createRecurringRepo(dbRef.current!).getById('rec-loan2');
+    expect(paid).toHaveLength(1);
+    expect(row?.remaining_payments).toBe(9);
+    expect(row?.next_due).toBe('2026-08-05');
+  });
+
+  it('still reloads on a later explicit call', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.load();
+    expect(store.loaded).toBe(true);
+    expect(store.accounts).toHaveLength(2);
   });
 });
