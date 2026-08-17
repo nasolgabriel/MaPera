@@ -18,7 +18,7 @@ import {
   budgetConsumed, budgetRemaining, budgetUsed, categorySpent, dailySafeSpend, spentByCategory, totalCap, vsBudget,
 } from '../domain/budgets';
 import {
-  expenseSeries, monthKeys, netSeries, savingsComparison, savingsSeries,
+  accountGrowthSeries, expenseSeries, monthKeys, netSeries, savingsComparison, savingsSeries,
 } from '../domain/statistics';
 import type { SeriesPoint } from '../domain/statistics';
 import {
@@ -375,6 +375,12 @@ export const useLedgerStore = defineStore('ledger', () => {
   /** vs_budget(t) for the loaded month (§8.4) — the spend-vs-budget card; null with no caps. */
   const spendVsBudget = computed(() => vsBudget(accounts.value, transactions.value, budgets.value, month.value));
 
+  // ── B13 Essence colors (§5 / §6.7) — per-account balance lines for the D1 growth card ──
+
+  const accountGrowth = computed(() =>
+    accountGrowthSeries(accounts.value, transactions.value, statsMonths.value, liveMonth.value),
+  );
+
   let inFlight: Promise<void> | null = null;
 
   function load(): Promise<void> {
@@ -598,6 +604,17 @@ export const useLedgerStore = defineStore('ledger', () => {
     sweeps.value = await repo.list();
   }
 
+  async function saveAccount(account: Account): Promise<void> {
+    const db = await getDb();
+    const repo = createAccountsRepo(db);
+    if (await repo.getById(account.id)) {
+      await repo.update(account);
+    } else {
+      await repo.create(account);
+    }
+    accounts.value = await repo.list();
+  }
+
   async function saveSavedItem(item: SavedItem): Promise<void> {
     const db = await getDb();
     const repo = createSavedItemsRepo(db);
@@ -703,11 +720,12 @@ export const useLedgerStore = defineStore('ledger', () => {
     duesRows, duesTotal, duesStillDue, duesNextMonth, dueDates, autoTransferByAccount,
     statsMonths, savingsTrend, savingsTrendComparison, expenseTrend, netTrend,
     savingsTrendChange, expenseTrendChange, netTrendChange, savingsRateDelta, spendVsBudget,
-    discountSavedThisYear,
+    discountSavedThisYear, accountGrowth,
     savingStreak, streakWeekBars, milestoneRows, nextMilestone, underBudgetSweep,
     load, refreshToday, addTransaction, updateTransaction, deleteTransaction, setMonth,
     setCap, applySplit, savePreset, deletePreset,
     addToGoal, saveGoal, deleteGoal, logInvestmentValue, runRecurring, logDue,
     saveSavedItem, deleteSavedItem, recordSavedItemUse, logDiscountedFare, sweepUnderBudget,
+    saveAccount,
   };
 });

@@ -56,7 +56,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Numbers, labels, meta text (§5 typography) */
 .mono {
   font-family: 'Spline Sans Mono', monospace;
 }
@@ -87,9 +86,6 @@ button {
   gap: 4px;
 }
 
-/* Essence colors (§5 / B13): an element carrying --e0..--e3 from theme/essence.ts resolves
-   --essence to the base in light and to the first lighter rung in dark (wireframes F1/F2:
-   "essence colors lightened"), so one binding serves both themes. */
 .essence {
   --essence: var(--e0);
 }

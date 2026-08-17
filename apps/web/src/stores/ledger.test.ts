@@ -1032,3 +1032,88 @@ describe('ledger store — concurrent load()', () => {
     expect(store.accounts).toHaveLength(2);
   });
 });
+
+describe('accounts + essence colors (B13)', () => {
+  it('saveAccount creates a new account with its essence pick and opening balance', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.saveAccount({
+      id: 'acc-gcash', name: 'GCash', type: 'ewallet', starting_balance: 415000,
+      essence_color: '#0D7A3F', archived: false,
+      credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+
+    const row = await createAccountsRepo(dbRef.current!).getById('acc-gcash');
+    expect(row?.essence_color).toBe('#0D7A3F');
+    expect(store.accounts).toHaveLength(3);
+    expect(store.accountBalances.get('acc-gcash')).toBe(415000);
+  });
+
+  it('saveAccount updates an existing account instead of duplicating it', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    const cash = store.accounts.find((a) => a.id === 'acc-cash')!;
+    await store.saveAccount({ ...cash, name: 'Wallet', essence_color: '#E8641B' });
+
+    expect(store.accounts).toHaveLength(2);
+    const row = await createAccountsRepo(dbRef.current!).getById('acc-cash');
+    expect(row?.name).toBe('Wallet');
+    expect(row?.essence_color).toBe('#E8641B');
+  });
+
+  it('saveAccount carries the credit-card fields through (§8.6 inputs)', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.saveAccount({
+      id: 'acc-card', name: 'RCBC Flex', type: 'credit_card', starting_balance: 0,
+      essence_color: '#B3282D', archived: false,
+      credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500,
+    });
+
+    const row = await createAccountsRepo(dbRef.current!).getById('acc-card');
+    expect(row).toMatchObject({ credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500 });
+    expect(store.creditCardsView).toHaveLength(1);
+  });
+
+  it('accountGrowth carries one balance series per active savings account (D1)', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.saveAccount({
+      id: 'acc-maya', name: 'Maya', type: 'ewallet', starting_balance: 100000,
+      essence_color: '#E8641B', archived: false,
+      credit_limit: null, statement_day: null, due_day: null, points_rate: null,
+    });
+    await store.addTransaction({
+      amount: 200000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-maya', category_id: null, date: '2026-06-20', note: null,
+    });
+
+    const series = store.accountGrowth;
+    expect(series.map((s) => s.account.id)).toEqual(['acc-bank', 'acc-maya']);
+    const maya = series.find((s) => s.account.id === 'acc-maya')!;
+    expect(maya.points.map((p) => p.month)).toEqual(store.statsMonths);
+    expect(maya.points[maya.points.length - 1]!.partial).toBe(true);
+    const june = maya.points.find((p) => p.month === '2026-06')!;
+    const may = maya.points.find((p) => p.month === '2026-05')!;
+    expect(may.value).toBe(100000);
+    expect(june.value).toBe(300000);
+  });
+
+  it('recomputes the growth lines when a transaction is deleted (invariant 4)', async () => {
+    const store = useLedgerStore();
+    await store.load();
+    await store.addTransaction({
+      amount: 150000, kind: 'transfer', account_id: 'acc-cash',
+      to_account_id: 'acc-bank', category_id: null, date: '2026-07-04', note: null,
+    });
+    const bankBefore = store.accountGrowth.find((s) => s.account.id === 'acc-bank')!.points;
+    const liveBefore = bankBefore[bankBefore.length - 1]!.value;
+
+    const added = store.transactions.find((t) => t.amount === 150000 && t.kind === 'transfer')!;
+    await store.deleteTransaction(added.id);
+
+    const bankAfter = store.accountGrowth.find((s) => s.account.id === 'acc-bank')!.points;
+    const liveAfter = bankAfter[bankAfter.length - 1]!.value;
+    expect(liveBefore - liveAfter).toBe(150000);
+  });
+});

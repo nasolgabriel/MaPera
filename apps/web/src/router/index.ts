@@ -12,6 +12,7 @@ export const router = createRouter({
     { path: '/caps', name: 'caps', component: () => import('../screens/CapsScreen.vue') },
     { path: '/card', name: 'card', component: () => import('../screens/CreditCardScreen.vue') },
     { path: '/items', name: 'items', component: () => import('../screens/SavedItemsScreen.vue') },
+    { path: '/accounts', name: 'accounts', component: () => import('../screens/AccountsScreen.vue') },
     { path: '/discounts', name: 'discounts', component: () => import('../screens/DiscountsScreen.vue') },
     { path: '/log', name: 'log', component: () => import('../screens/LogSheetScreen.vue') },
     { path: '/lock', name: 'lock', component: () => import('../screens/LockScreen.vue') },

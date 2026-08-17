@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Account, Transaction } from '../db/repositories/types';
 import {
+  accountBalanceAsOf,
+  accountGrowthSeries,
+  accountSeries,
   monthKeys,
   totalSavedAsOf,
   savingsSeries,
@@ -126,5 +129,56 @@ describe('savingsComparison — dashed line (math-doc §5)', () => {
     expect(cmp[idxJun]).toBe(100000);
     // The 2026-02 point's year-ago (2025-02) predates any data → 0 saved then.
     expect(cmp[0]).toBe(0);
+  });
+});
+
+describe('per-account growth series — D1 essence-coloured lines', () => {
+  const accounts = [
+    acc('cash', 'cash', 500000),
+    acc('bank', 'bank', 100000),
+    acc('maya', 'ewallet', 0),
+    acc('old', 'bank', 900000, true),
+  ];
+  const txns = [
+    txn({ id: 't1', amount: 200000, kind: 'transfer', account_id: 'cash', to_account_id: 'bank', date: '2026-05-05' }),
+    txn({ id: 't2', amount: 50000, kind: 'transfer', account_id: 'cash', to_account_id: 'maya', date: '2026-06-10' }),
+    txn({ id: 't3', amount: 30000, kind: 'transfer', account_id: 'maya', to_account_id: 'bank', date: '2026-07-02' }),
+  ];
+  const months = monthKeys('2026-07', 4);
+
+  it('walks one account balance forward month by month (§8.1)', () => {
+    expect(accountBalanceAsOf(accounts[1]!, txns, '2026-04')).toBe(100000);
+    expect(accountBalanceAsOf(accounts[1]!, txns, '2026-05')).toBe(300000);
+    expect(accountBalanceAsOf(accounts[1]!, txns, '2026-07')).toBe(330000);
+  });
+
+  it('starts from starting_balance before any transaction exists', () => {
+    expect(accountBalanceAsOf(accounts[2]!, txns, '2026-05')).toBe(0);
+    expect(accountBalanceAsOf(accounts[2]!, txns, '2026-06')).toBe(50000);
+    expect(accountBalanceAsOf(accounts[2]!, txns, '2026-07')).toBe(20000);
+  });
+
+  it('flags only the live month partial (§8.7)', () => {
+    const points = accountSeries(accounts[1]!, txns, months, '2026-07');
+    expect(points.map((p) => p.month)).toEqual(['2026-04', '2026-05', '2026-06', '2026-07']);
+    expect(points.map((p) => p.partial)).toEqual([false, false, false, true]);
+    expect(points.map((p) => p.value)).toEqual([100000, 300000, 300000, 330000]);
+  });
+
+  it('covers active savings-flagged accounts only (§8.1 / §6.3)', () => {
+    const series = accountGrowthSeries(accounts, txns, months, '2026-07');
+    expect(series.map((s) => s.account.id)).toEqual(['bank', 'maya']);
+  });
+
+  it('re-buckets a backdated transfer into the right month (invariant 6)', () => {
+    const back = [...txns, txn({ id: 't4', amount: 70000, kind: 'transfer', account_id: 'cash', to_account_id: 'bank', date: '2026-04-28' })];
+    const points = accountSeries(accounts[1]!, back, months, '2026-07');
+    expect(points.map((p) => p.value)).toEqual([170000, 370000, 370000, 400000]);
+  });
+
+  it('is pure — the input transaction array is never reordered or mutated', () => {
+    const snapshot = txns.map((t) => t.id);
+    accountGrowthSeries(accounts, txns, months, '2026-07');
+    expect(txns.map((t) => t.id)).toEqual(snapshot);
   });
 });

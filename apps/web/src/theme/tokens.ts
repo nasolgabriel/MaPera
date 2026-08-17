@@ -46,7 +46,6 @@ export const dark: ThemeTokens = {
 
 /**
  * Essence colors — §5 (DECIDED). Each account picks ONE of these 6.
- * Users never enter free hex values. Shade derivation lands in B13.
  */
 export const essenceColors = [
   '#B3282D', // red

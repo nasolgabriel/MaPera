@@ -57,11 +57,11 @@ describe('app shell', () => {
     expect(wrapper.findAll('.banner .blank')).toHaveLength(4)
   })
 
-  it('has routes for all eleven screens', () => {
+  it('has routes for all twelve screens', () => {
     const names = router.getRoutes().map((r) => r.name)
     expect(names).toEqual(
       expect.arrayContaining([
-        'budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items', 'discounts', 'growth',
+        'budget', 'savings', 'stats', 'more', 'log', 'lock', 'caps', 'card', 'items', 'accounts', 'discounts', 'growth',
       ]),
     )
   })
@@ -427,6 +427,7 @@ describe('sub-screen back arrow (E4)', () => {
     ['/card', 'Back to Budget', 'budget'],
     ['/growth', 'Back to Savings', 'savings'],
     ['/items', 'Back to More', 'more'],
+    ['/accounts', 'Back to More', 'more'],
     ['/discounts', 'Back to More', 'more'],
   ]
 
@@ -454,5 +455,148 @@ describe('sub-screen back arrow (E4)', () => {
       await flushPromises()
       expect(wrapper.find('.screen-head .back').exists()).toBe(false)
     }
+  })
+})
+
+describe('essence colors (B13)', () => {
+  pinSeedClock()
+
+  const NAVY_LADDER = ['#1E3A6E', '#4B638E', '#8B9CB9', '#D5DBE6']
+
+  function rgb(hex: string): string {
+    const n = parseInt(hex.slice(1), 16)
+    return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
+  }
+
+  async function mountAt(path: string) {
+    dbRef.current = await createSqlJsDriver()
+    await seed(dbRef.current)
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    await router.push(path)
+    await flushPromises()
+    return wrapper
+  }
+
+  it('reaches the accounts screen from More and lists every account with its ladder', async () => {
+    const wrapper = await mountAt('/more')
+    const row = wrapper.findAll('.row').find((r) => r.text().includes('Accounts'))!
+    expect(row.attributes('href')).toContain('/accounts')
+
+    await router.push('/accounts')
+    await flushPromises()
+    const accounts = wrapper.findAll('.acct')
+    expect(accounts).toHaveLength(2)
+    expect(wrapper.text()).toContain('Cash')
+    expect(wrapper.text()).toContain('BPI')
+    const cash = accounts.find((a) => a.text().includes('Cash'))!
+    const style = (cash.attributes('style') ?? '').toLowerCase()
+    for (const shade of NAVY_LADDER) expect(style).toContain(shade.toLowerCase())
+    expect(cash.findAll('.ladder i')).toHaveLength(4)
+  })
+
+  it('opens the editor prefilled and shows the derived shades of the pick (E2)', async () => {
+    const wrapper = await mountAt('/accounts')
+    const cash = wrapper.findAll('.acct').find((a) => a.text().includes('Cash'))!
+    await cash.trigger('click')
+    await flushPromises()
+
+    const sheet = wrapper.find('[role="dialog"]')
+    expect(sheet.attributes('aria-label')).toBe('Edit account')
+    expect((sheet.find('input[aria-label="Account name"]').element as HTMLInputElement).value).toBe('Cash')
+    expect(sheet.findAll('.swatch')).toHaveLength(6)
+    expect(sheet.find('.swatch.picked').attributes('style')).toContain(rgb('#1E3A6E'))
+
+    const shades = sheet.findAll('.shade')
+    expect(shades).toHaveLength(4)
+    for (let i = 0; i < 4; i += 1) {
+      expect(shades[i]!.attributes('style')).toContain(rgb(NAVY_LADDER[i]!))
+    }
+  })
+
+  it('re-colours an account and the preview follows the new pick', async () => {
+    const wrapper = await mountAt('/accounts')
+    const cash = wrapper.findAll('.acct').find((a) => a.text().includes('Cash'))!
+    await cash.trigger('click')
+    await flushPromises()
+
+    const sheet = wrapper.find('[role="dialog"]')
+    const swatches = sheet.findAll('.swatch')
+    await swatches[4]!.trigger('click')
+    expect(sheet.find('.shade').attributes('style')).toContain(rgb('#7A3FD0'))
+
+    await sheet.find('.save').trigger('click')
+    await flushPromises()
+
+    const row = await createAccountsRepo(dbRef.current!).getById('acc-cash')
+    expect(row?.essence_color).toBe('#7A3FD0')
+    const recoloured = wrapper.findAll('.acct').find((a) => a.text().includes('Cash'))!
+    expect(recoloured.attributes('style')!.toLowerCase()).toContain('#7a3fd0')
+  })
+
+  it('shows the credit-card fields only for type = credit (E2)', async () => {
+    const wrapper = await mountAt('/accounts')
+    await wrapper.find('.new-btn').trigger('click')
+    await flushPromises()
+
+    const sheet = wrapper.find('[role="dialog"]')
+    expect(sheet.attributes('aria-label')).toBe('New account')
+    expect(sheet.find('.card-block').exists()).toBe(false)
+
+    const credit = sheet.findAll('.type').find((t) => t.text() === 'credit')!
+    await credit.trigger('click')
+    expect(sheet.find('.card-block').exists()).toBe(true)
+    expect(sheet.find('input[aria-label="Credit limit"]').exists()).toBe(true)
+    expect(sheet.find('input[aria-label="Statement day"]').exists()).toBe(true)
+    expect(sheet.find('input[aria-label="Pesos per point"]').exists()).toBe(true)
+  })
+
+  it('creates an account with its card fields and opening balance', async () => {
+    const wrapper = await mountAt('/accounts')
+    await wrapper.find('.new-btn').trigger('click')
+    await flushPromises()
+
+    const sheet = wrapper.find('[role="dialog"]')
+    await sheet.find('input[aria-label="Account name"]').setValue('RCBC Flex')
+    await sheet.findAll('.type').find((t) => t.text() === 'credit')!.trigger('click')
+    await sheet.findAll('.swatch')[0]!.trigger('click')
+    await sheet.find('input[aria-label="Credit limit"]').setValue('30000')
+    await sheet.find('input[aria-label="Statement day"]').setValue('15')
+    await sheet.find('input[aria-label="Due day"]').setValue('5')
+    await sheet.find('input[aria-label="Pesos per point"]').setValue('25')
+    await sheet.find('.save').trigger('click')
+    await flushPromises()
+
+    const rows = await createAccountsRepo(dbRef.current!).list()
+    const card = rows.find((a) => a.name === 'RCBC Flex')!
+    expect(card).toMatchObject({
+      type: 'credit_card', essence_color: '#B3282D',
+      credit_limit: 3000000, statement_day: 15, due_day: 5, points_rate: 2500,
+    })
+    expect(wrapper.findAll('.acct')).toHaveLength(3)
+  })
+
+  it('paints the Budget chips and Savings rows from the ladder', async () => {
+    const wrapper = await mountAt('/')
+    const chip = wrapper.findAll('.acct-chip').find((c) => c.text().includes('Cash'))!
+    expect(chip.classes()).toContain('essence')
+    expect(chip.attributes('style')!.toLowerCase()).toContain('#1e3a6e')
+
+    await router.push('/savings')
+    await flushPromises()
+    const row = wrapper.find('.acct.essence')
+    expect(row.exists()).toBe(true)
+    expect(row.attributes('style')!.toLowerCase()).toContain('#0d7a3f')
+  })
+
+  it('draws one essence-coloured growth line per savings account (D1)', async () => {
+    const wrapper = await mountAt('/stats')
+    const chart = wrapper.find('.account-lines')
+    expect(chart.exists()).toBe(true)
+
+    const groups = chart.findAll('svg g.essence')
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.attributes('style')!.toLowerCase()).toContain('#0d7a3f')
+    expect(chart.findAll('.line')).toHaveLength(2)
+    expect(chart.find('.legend').text()).toContain('BPI')
   })
 })

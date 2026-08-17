@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLedgerStore } from '../stores/ledger';
 import { hasFailingCheck } from '../domain/credit';
+import AccountLines from '../components/AccountLines.vue';
 import LineChart from '../components/LineChart.vue';
 import MonthBars from '../components/MonthBars.vue';
 import StatCard from '../components/StatCard.vue';
@@ -124,6 +125,12 @@ onMounted(async () => {
               :sub="vsBudgetCard.sub"
             />
           </div>
+
+          <AccountLines
+            v-if="store.accountGrowth.length > 0"
+            :series="store.accountGrowth"
+            label="Per-account growth"
+          />
 
           <p class="question mono">How much did I spend each month?</p>
           <MonthBars :points="store.expenseTrend" label="Spend by month" :change-pct="store.expenseTrendChange" />

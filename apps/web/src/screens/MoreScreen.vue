@@ -7,6 +7,10 @@ import { RouterLink } from 'vue-router';
     <h1 class="title">More</h1>
 
     <nav class="list">
+      <RouterLink class="row" to="/accounts">
+        <span>Accounts</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </RouterLink>
       <RouterLink class="row" to="/items">
         <span>Saved items library</span>
         <span class="chevron" aria-hidden="true">›</span>
@@ -17,7 +21,7 @@ import { RouterLink } from 'vue-router';
       </RouterLink>
     </nav>
 
-    <p class="placeholder">Accounts, lock, theme and backup land in later sessions.</p>
+    <p class="placeholder">Categories, lock, theme and backup land in later sessions.</p>
   </main>
 </template>
 

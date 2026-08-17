@@ -13,6 +13,7 @@ import AddToGoalSheet from '../components/AddToGoalSheet.vue';
 import GoalEditorSheet from '../components/GoalEditorSheet.vue';
 import InvestmentValueSheet from '../components/InvestmentValueSheet.vue';
 import { goalFraction, goalToGo } from '../domain/savings';
+import { essenceVars } from '../theme/essence';
 import type { Account, Goal } from '../db/repositories/types';
 
 const store = useLedgerStore();
@@ -149,8 +150,8 @@ onMounted(async () => {
       <li
         v-for="row in store.savingsAccountsView"
         :key="row.account.id"
-        class="acct"
-        :style="{ borderLeftColor: row.account.essence_color }"
+        class="acct essence"
+        :style="essenceVars(row.account.essence_color)"
       >
         <div class="acct-top">
           <div class="acct-info">
@@ -159,7 +160,7 @@ onMounted(async () => {
               {{ TYPE_LABEL[row.account.type] }}<template v-if="autoBadge(row.account.id)"> · <span class="auto-badge">{{ autoBadge(row.account.id) }}</span></template>
             </div>
           </div>
-          <div class="acct-balance" :style="{ color: row.account.essence_color }">
+          <div class="acct-balance">
             {{ balanceText(row.balance) }}
           </div>
         </div>
@@ -296,7 +297,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 8px;
   border: 1px solid var(--color-border);
-  border-left: 4px solid var(--color-primary);
+  border-left: 4px solid var(--essence);
   border-radius: 10px;
   padding: 9px 12px;
 }
@@ -321,6 +322,7 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: var(--essence);
 }
 .invest {
   display: flex;

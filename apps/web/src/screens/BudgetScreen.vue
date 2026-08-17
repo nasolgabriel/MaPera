@@ -11,6 +11,7 @@ import DuesSheet from '../components/DuesSheet.vue';
 import MonthBanner from '../components/MonthBanner.vue';
 import SpendGraph from '../components/SpendGraph.vue';
 import { hasFailingCheck } from '../domain/credit';
+import { essenceVars } from '../theme/essence';
 import type { DonutSlice } from '../components/DonutChart.vue';
 import type { Transaction } from '../db/repositories/types';
 
@@ -381,9 +382,9 @@ onBeforeUnmount(() => {
         :is="a.type === 'credit_card' ? 'button' : 'div'"
         v-for="a in activeAccounts"
         :key="a.id"
-        class="acct-chip"
+        class="acct-chip essence"
         :class="{ card: a.type === 'credit_card', alert: cardAlert(a.id) }"
-        :style="{ borderLeftColor: cardAlert(a.id) ? 'var(--color-danger)' : a.essence_color }"
+        :style="essenceVars(a.essence_color)"
         :aria-label="a.type === 'credit_card' ? `${a.name} card health` : undefined"
         @click="a.type === 'credit_card' ? router.push('/card') : undefined"
       >
@@ -652,7 +653,7 @@ onBeforeUnmount(() => {
   min-width: 92px;
   border-radius: 10px;
   background: var(--color-muted);
-  border-left: 3px solid var(--color-primary);
+  border-left: 3px solid var(--essence);
   padding: 7px 9px;
 }
 /* The card chip is a <button> (the global reset already gives it the §5 44px target). */

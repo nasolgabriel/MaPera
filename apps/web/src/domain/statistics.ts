@@ -3,7 +3,7 @@
 // set so editing/deleting a transaction recomputes everything (invariant 4) — nothing is
 // cached. Money math (I/E/S_net/free_cash_flow/total_saved) is reused verbatim from stats.ts.
 import type { Account, Transaction } from '../db/repositories/types';
-import { expenses, freeCashFlow, totalSaved } from './stats';
+import { accountBalance, expenses, freeCashFlow, isSavingsAccount, totalSaved } from './stats';
 
 /** One point of a monthly time series. */
 export interface SeriesPoint {
@@ -121,4 +121,37 @@ export function savingsComparison(
   const hasYear = earliest !== null && monthIndex(currentMonth) - monthIndex(earliest) >= 12;
   if (!hasYear) return rolling;
   return months.map((m) => totalSavedAsOf(accounts, transactions, shiftMonth(m, -12)));
+}
+
+export interface AccountSeries {
+  account: Account;
+  points: SeriesPoint[];
+}
+
+export function accountBalanceAsOf(
+  account: Account,
+  transactions: Transaction[],
+  month: string,
+): number {
+  return accountBalance(account, transactions.filter((t) => t.date.slice(0, 7) <= month));
+}
+
+export function accountSeries(
+  account: Account,
+  transactions: Transaction[],
+  months: string[],
+  currentMonth: string,
+): SeriesPoint[] {
+  return months.map((m) => point(m, accountBalanceAsOf(account, transactions, m), currentMonth));
+}
+
+export function accountGrowthSeries(
+  accounts: Account[],
+  transactions: Transaction[],
+  months: string[],
+  currentMonth: string,
+): AccountSeries[] {
+  return accounts
+    .filter((a) => !a.archived && isSavingsAccount(a))
+    .map((account) => ({ account, points: accountSeries(account, transactions, months, currentMonth) }));
 }

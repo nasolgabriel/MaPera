@@ -41,7 +41,7 @@ const route = useRoute();
 const store = useLedgerStore();
 
 const visible = computed(
-  () => !sheetOpen.value && ['budget', 'savings', 'stats', 'more', 'caps', 'card', 'items', 'discounts', 'growth'].includes(String(route.name)),
+  () => !sheetOpen.value && ['budget', 'savings', 'stats', 'more', 'caps', 'card', 'items', 'accounts', 'discounts', 'growth'].includes(String(route.name)),
 );
 
 const open = ref(false);
