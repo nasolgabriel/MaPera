@@ -4,6 +4,7 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 :root {
@@ -72,6 +73,9 @@ button {
   background: none;
   border: none;
   cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
   /* Hit targets ≥ 44px (§5) */
   min-height: 44px;
   min-width: 44px;
@@ -81,4 +85,14 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Essence colors (§5 / B13): an element carrying --e0..--e3 from theme/essence.ts resolves
+   --essence to the base in light and to the first lighter rung in dark (wireframes F1/F2:
+   "essence colors lightened"), so one binding serves both themes. */
+.essence {
+  --essence: var(--e0);
+}
+:root[data-theme='dark'] .essence {
+  --essence: var(--e1);
 }
